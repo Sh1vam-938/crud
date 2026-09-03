@@ -1,0 +1,453 @@
+════════════════════════════════════════════════════════════════════
+  STAGE 3 — MySQL Database & Tables
+  What We Built, Why, How It Works
+  Task Manager REST API — Learning Journal
+════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHY DO WE NEED A DATABASE?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  In Stage 2, we stored tasks in a JavaScript array:
+    let tasks = [ { id: 1, title: "..." }, ... ]
+
+  Problems with this approach:
+    ❌ Data DISAPPEARS when server restarts
+    ❌ Cannot store millions of records (RAM is limited)
+    ❌ No powerful search / filtering / sorting
+    ❌ Cannot be shared between multiple server instances
+    ❌ No relationships between data (tasks don't belong to users)
+    ❌ No data integrity (can store anything, valid or not)
+
+  A database fixes ALL of these:
+    ✅ Data PERSISTS forever (saved to disk)
+    ✅ Can handle billions of records
+    ✅ SQL gives powerful query capabilities
+    ✅ Multiple servers can connect to one database
+    ✅ Foreign keys enforce relationships
+    ✅ Constraints enforce valid data (NOT NULL, UNIQUE, ENUM)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS MYSQL?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  MySQL is a RELATIONAL database management system (RDBMS).
+  "Relational" means data is stored in TABLES with RELATIONSHIPS
+  between them.
+
+  A table is like a spreadsheet:
+    - Rows    = individual records (one user, one task)
+    - Columns = fields/attributes (name, email, status)
+
+  Example: users table
+  ┌────┬───────────────┬────────────────────┬───────────────────┐
+  │ id │ name          │ email              │ password_hash     │
+  ├────┼───────────────┼────────────────────┼───────────────────┤
+  │  1 │ Alice Johnson │ alice@example.com  │ $2a$10$92IXU...   │
+  │  2 │ Bob Smith     │ bob@example.com    │ $2a$10$92IXU...   │
+  └────┴───────────────┴────────────────────┴───────────────────┘
+
+  Example: tasks table
+  ┌────┬─────────┬───────────────────────┬────────────┬──────────┐
+  │ id │ user_id │ title                 │ status     │ priority │
+  ├────┼─────────┼───────────────────────┼────────────┼──────────┤
+  │  1 │    1    │ Learn Node.js         │ completed  │ high     │
+  │  2 │    1    │ Learn Express         │ completed  │ high     │
+  │  3 │    1    │ Connect MySQL         │ pending    │ high     │
+  │  4 │    2    │ Read SQL Basics       │ in_progress│ medium   │
+  └────┴─────────┴───────────────────────┴────────────┴──────────┘
+
+  Notice: user_id in tasks matches id in users.
+  This is a RELATIONSHIP — Alice (id=1) owns tasks 1, 2, 3.
+
+  Why MySQL specifically?
+    + Most popular database in the world
+    + Free and open source
+    + Works on Windows, Mac, Linux
+    + Excellent Node.js support (mysql2 package)
+    + MySQL Workbench gives a visual interface
+    + Great documentation and community
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS SQL?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  SQL = Structured Query Language
+  It is the language used to communicate with relational databases.
+  SQL is NOT a programming language — it's a QUERY language.
+  You use it to: Create, Read, Update, Delete data.
+
+  SQL has different categories of commands:
+
+  DDL — Data Definition Language (structure of the database)
+  ─────────────────────────────────────────────────────────
+    CREATE DATABASE  → create a new database
+    CREATE TABLE     → create a new table
+    ALTER TABLE      → modify a table (add/remove columns)
+    DROP TABLE       → delete a table permanently
+
+  DML — Data Manipulation Language (data inside tables)
+  ───────────────────────────────────────────────────────
+    INSERT INTO      → add new rows
+    SELECT           → read/query rows
+    UPDATE           → modify existing rows
+    DELETE           → remove rows
+
+  DCL — Data Control Language (permissions)
+  ─────────────────────────────────────────
+    GRANT            → give permission to a user
+    REVOKE           → remove permission from a user
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SQL DATA TYPES USED IN OUR SCHEMA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  INT
+  ────
+  A whole number. No decimals.
+  Range: -2,147,483,648 to 2,147,483,647
+  Used for: id, user_id
+  Example: 1, 42, 1000
+
+  VARCHAR(n)
+  ───────────
+  Variable-length text, maximum n characters.
+  Only uses as much space as needed.
+  "VARCHAR(100)" means: up to 100 characters.
+  Used for: name, email, title
+  Example: "Alice", "alice@example.com"
+
+  TEXT
+  ─────
+  Long text with no fixed limit (up to ~65,535 characters).
+  Used for: description (longer notes about a task)
+
+  BOOLEAN
+  ────────
+  True or false. MySQL stores it as 1 (true) or 0 (false).
+  Used for: is_active
+
+  DATE
+  ─────
+  A calendar date. Format: YYYY-MM-DD
+  Example: "2024-12-31"
+  NO time component.
+  Used for: due_date
+
+  TIMESTAMP
+  ──────────
+  Date + time. Format: YYYY-MM-DD HH:MM:SS
+  Example: "2024-01-15 14:30:00"
+  Automatically uses UTC time zone.
+  Used for: created_at, updated_at
+
+  ENUM('a','b','c')
+  ───────────────────
+  A column that can ONLY hold one of the listed values.
+  Like a dropdown — you pick one option.
+  MySQL rejects any other value.
+  Used for: status, priority
+  Example: status = 'pending' or 'completed' but NOT 'done' (invalid!)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  KEY CONCEPTS EXPLAINED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  PRIMARY KEY
+  ────────────
+  A column (or group of columns) that UNIQUELY identifies each row.
+  Rules:
+    - Must be unique (no two rows have same primary key value)
+    - Cannot be NULL
+  We use "id" as primary key in both tables.
+  Combined with AUTO_INCREMENT: MySQL automatically assigns 1, 2, 3...
+
+  AUTO_INCREMENT
+  ───────────────
+  Automatically assigns the next integer when you INSERT a row.
+  You don't have to specify the id — MySQL handles it.
+  Example:
+    INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com');
+    MySQL automatically gives Alice id = 1
+    Next user gets id = 2, then 3, etc.
+
+  NOT NULL
+  ─────────
+  A CONSTRAINT. The column MUST have a value.
+  If you try to INSERT without this field, MySQL throws an error.
+  Example: every user MUST have an email. No blank emails allowed.
+
+  UNIQUE
+  ───────
+  The column's value must be unique across all rows.
+  Used on email so two users can't register with the same email.
+  MySQL automatically creates an INDEX on UNIQUE columns.
+
+  DEFAULT value
+  ──────────────
+  If you INSERT a row without specifying this column, MySQL
+  automatically fills in the default value.
+  Examples:
+    status    DEFAULT 'pending'  → new tasks start as pending
+    is_active DEFAULT 1          → new users start as active
+    created_at DEFAULT NOW()     → fills current timestamp automatically
+
+  ON UPDATE NOW()
+  ────────────────
+  When a row is UPDATED, MySQL automatically fills this column
+  with the current timestamp. We use this for updated_at.
+  You don't have to remember to update it — MySQL does it for you!
+
+  NULL vs NOT NULL
+  ─────────────────
+  NULL = "no value" / "unknown" / "empty"
+  NULL is NOT the same as 0 or ""
+  NOT NULL = the column must always have a value
+
+  In our schema:
+    description NULL  → a task can have no description (optional)
+    due_date    NULL  → a task might have no deadline (optional)
+    email   NOT NULL  → every user MUST have an email
+
+  FOREIGN KEY
+  ────────────
+  Creates a RELATIONSHIP between two tables.
+  In tasks table: user_id is a foreign key referencing users.id
+
+  What it enforces:
+    ✅ You CANNOT insert a task with user_id = 99 if there's no user with id = 99
+    ✅ Ensures data integrity — no orphan records
+
+  ON DELETE CASCADE
+  ──────────────────
+  If you DELETE a user, automatically delete ALL their tasks too.
+  Without this, you'd have tasks with no owner — "orphan records".
+
+  Example:
+    You delete user Alice (id=1)
+    MySQL automatically deletes tasks where user_id = 1
+    No cleanup needed on the application side.
+
+  INDEX
+  ──────
+  An index is like a lookup table that MySQL maintains internally.
+  Without index: MySQL scans EVERY row to find matches (slow with millions of rows)
+  With index:    MySQL jumps directly to matching rows (very fast)
+
+  We index columns we frequently query:
+    idx_tasks_user_id  → "give me all tasks for user #5"
+    idx_tasks_status   → "give me all pending tasks"
+    idx_tasks_priority → "give me all high priority tasks"
+
+  Downside of indexes:
+    - They take up disk space
+    - INSERT/UPDATE/DELETE becomes slightly slower (index must be updated)
+    - Only add indexes where you actually query that column
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  THE RELATIONSHIP BETWEEN users AND tasks
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  This is a ONE-TO-MANY relationship:
+    ONE user → MANY tasks
+
+  One user (Alice) can have many tasks.
+  But each task belongs to exactly ONE user.
+
+  Visual:
+    users                    tasks
+    ──────────               ──────────────────────────
+    id=1 (Alice) ──────────┬─ id=1, user_id=1, "Learn Node.js"
+                           ├─ id=2, user_id=1, "Learn Express"
+                           └─ id=3, user_id=1, "Connect MySQL"
+
+    id=2 (Bob)   ──────────┬─ id=4, user_id=2, "Read SQL Basics"
+                           └─ id=5, user_id=2, "Practice Postman"
+
+  The foreign key (user_id in tasks pointing to id in users)
+  is what enforces and expresses this relationship.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SQL QUERIES — LEARN BY EXAMPLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  After running schema.sql, try these queries in MySQL Workbench:
+
+  SELECT — Read Data
+  ───────────────────
+  -- Get everything from users table
+  SELECT * FROM users;
+
+  -- Get specific columns only
+  SELECT id, name, email FROM users;
+
+  -- Get only pending tasks
+  SELECT * FROM tasks WHERE status = 'pending';
+
+  -- Get tasks with a specific priority, sorted by title
+  SELECT * FROM tasks WHERE priority = 'high' ORDER BY title ASC;
+
+  -- Get only tasks belonging to user 1 (Alice)
+  SELECT * FROM tasks WHERE user_id = 1;
+
+  INSERT — Add Data
+  ──────────────────
+  -- Add a new user
+  INSERT INTO users (name, email, password_hash)
+  VALUES ('Charlie', 'charlie@example.com', 'hashed_password_here');
+
+  -- Add a new task for user 1
+  INSERT INTO tasks (user_id, title, priority)
+  VALUES (1, 'Build the API', 'high');
+
+  UPDATE — Modify Data
+  ─────────────────────
+  -- Mark task 3 as completed
+  UPDATE tasks SET status = 'completed' WHERE id = 3;
+
+  -- Update multiple fields at once
+  UPDATE tasks
+  SET status = 'in_progress', priority = 'high'
+  WHERE id = 4;
+
+  -- ⚠️ DANGER: UPDATE without WHERE updates ALL rows!
+  -- UPDATE tasks SET status = 'completed';  ← updates ALL tasks!
+  -- Always add WHERE when updating!
+
+  DELETE — Remove Data
+  ─────────────────────
+  -- Delete task 6
+  DELETE FROM tasks WHERE id = 6;
+
+  -- ⚠️ DANGER: DELETE without WHERE deletes ALL rows!
+  -- DELETE FROM tasks;  ← deletes EVERYTHING!
+  -- Always add WHERE when deleting!
+
+  JOIN — Combine Tables
+  ──────────────────────
+  -- Get tasks with their owner's name
+  SELECT t.id, t.title, t.status, u.name AS owner
+  FROM tasks t
+  JOIN users u ON t.user_id = u.id;
+
+  -- "JOIN users u ON t.user_id = u.id"
+  -- Means: connect the two tables where tasks.user_id = users.id
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW TO RUN THE SCHEMA IN MYSQL WORKBENCH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Method 1 — Open SQL file directly (Recommended):
+  ──────────────────────────────────────────────────
+  1. Open MySQL Workbench
+  2. Click your connection (Local instance MySQL80 or similar)
+  3. Enter your root password if asked
+  4. Go to menu: File → Open SQL Script
+  5. Navigate to: Desktop\crud\database\schema.sql
+  6. Click Open
+  7. Click the ⚡ (Execute All) button in the toolbar
+  8. Check the Output panel at the bottom for success messages
+
+  Method 2 — Copy and Paste:
+  ───────────────────────────
+  1. Open MySQL Workbench
+  2. Connect to your server
+  3. Open a new Query tab (Ctrl+T)
+  4. Open schema.sql in a text editor
+  5. Select All (Ctrl+A) and Copy (Ctrl+C)
+  6. Paste into MySQL Workbench query editor
+  7. Click ⚡ Execute All
+
+  After running, verify in MySQL Workbench:
+  ─────────────────────────────────────────
+  In the left panel (Schemas):
+    Click the refresh button (circular arrow)
+    You should see "task_manager_db" appear
+    Expand it → Tables → you should see "users" and "tasks"
+
+  Run this to double-check everything:
+    USE task_manager_db;
+    SHOW TABLES;
+    DESCRIBE users;
+    DESCRIBE tasks;
+    SELECT * FROM users;
+    SELECT * FROM tasks;
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW DATA FLOWS WITH A DATABASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  BEFORE (Stage 2 — memory):
+    Postman → Express → tasks[] array in RAM → Response
+    Problem: tasks[] dies when server restarts
+
+  AFTER (Stage 4+ — database):
+    Postman → Express → Node.js → MySQL (port 3306) → disk storage
+                          ↑
+                      mysql2 package handles this connection
+
+  Data now lives on DISK (MySQL files), not in RAM.
+  It persists forever, even after restarting the server.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT WE BUILT — SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  File: database/schema.sql
+
+  Contains:
+    ✅ CREATE DATABASE task_manager_db
+    ✅ CREATE TABLE users  (id, name, email, password_hash, is_active, timestamps)
+    ✅ CREATE TABLE tasks  (id, user_id, title, description, status, priority, due_date, timestamps)
+    ✅ FOREIGN KEY constraint (tasks.user_id → users.id)  with CASCADE delete
+    ✅ INDEXES on user_id, status, priority for performance
+    ✅ Sample data (2 users, 6 tasks)
+    ✅ Verification queries
+
+════════════════════════════════════════════════════════════════════
+  ✏️  YOUR TASK — Try This in MySQL Workbench!
+════════════════════════════════════════════════════════════════════
+
+  After running schema.sql successfully, try these SQL queries
+  in MySQL Workbench to practice:
+
+  TASK 1: See all tasks for user with id = 1
+    SELECT * FROM tasks WHERE user_id = 1;
+
+  TASK 2: Count how many tasks are pending
+    SELECT COUNT(*) as pending_count FROM tasks WHERE status = 'pending';
+
+  TASK 3: See tasks sorted by priority (high first)
+    SELECT title, priority, status FROM tasks
+    ORDER BY FIELD(priority, 'high', 'medium', 'low');
+
+  TASK 4: Add yourself as a new user
+    INSERT INTO users (name, email, password_hash)
+    VALUES ('Your Name', 'you@example.com', 'not_hashed_yet');
+
+  TASK 5: Add a task for yourself (use your new user's id)
+    INSERT INTO tasks (user_id, title, priority)
+    VALUES (3, 'Complete Stage 3', 'high');
+
+  TASK 6: Run the JOIN query from the schema file:
+    SELECT t.id, t.title, t.status, u.name AS owner_name
+    FROM tasks t
+    JOIN users u ON t.user_id = u.id
+    ORDER BY t.id;
+
+  Check that all results look correct before moving to Stage 4!
+
+════════════════════════════════════════════════════════════════════
+  WHAT'S NEXT — STAGE 4
+════════════════════════════════════════════════════════════════════
+
+  In Stage 4 we will:
+    - Create config/db.js — connects Node.js to MySQL using mysql2
+    - Learn about connection pools (why they're needed)
+    - Test the connection
+    - Learn async/await and Promises (how Node.js handles async ops)
+    - Run test SQL queries from Node.js code
+
+  After Stage 4, our app talks to a real database!
+
+════════════════════════════════════════════════════════════════════

@@ -1,0 +1,359 @@
+════════════════════════════════════════════════════════════════════
+  STAGE 8 — User Registration & Password Hashing
+  What We Built, Why, How It Works
+  Task Manager REST API — Learning Journal
+════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT WE BUILT IN STAGE 8
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Files created:
+    controllers/authController.js   ← register function
+    routes/authRoutes.js            ← POST /api/auth/register
+
+  Files updated:
+    server.js                       ← mounts /api/auth routes
+
+  What you can do now:
+    Register a new user:  POST /api/auth/register
+    Their password is hashed before saving — safe even if DB is stolen.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHY NEVER STORE PLAIN PASSWORDS?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Imagine your database gets hacked (it happens to big companies!).
+  If you stored plain passwords:
+    password_hash column contains: "password123", "mydog2019", "abc123"
+    → Hackers have EVERYONE's actual password
+    → People reuse passwords → hacker logs into their Gmail, bank, etc.
+    → You go to jail (or pay massive fines under GDPR/data laws)
+
+  If you stored hashed passwords:
+    password_hash column contains: "$2a$12$eImiTXuWVxfM37uY4JANjQ..."
+    → Completely unreadable
+    → Even YOU (the developer) cannot see what the password was
+    → Hackers get nothing useful
+
+  This is a non-negotiable rule in professional development.
+  ALWAYS hash passwords. No exceptions.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS HASHING? vs ENCRYPTION?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  These are completely different things. Beginners confuse them often.
+
+  ENCRYPTION (two-way):
+  ─────────────────────
+  plaintext  →  [encrypt with key]  →  ciphertext
+  ciphertext →  [decrypt with key]  →  plaintext (back to original!)
+
+  Used for: storing credit card numbers, private messages.
+  The original data can be RECOVERED with the key.
+
+  HASHING (one-way):
+  ───────────────────
+  plaintext  →  [hash function]  →  hash
+  hash       →  ??? (IMPOSSIBLE to go back to plaintext)
+
+  Used for: passwords.
+  The original data can NEVER be recovered from the hash.
+
+  So how does login work if hashing is one-way?
+  ─────────────────────────────────────────────
+  You do NOT "decrypt" the stored hash.
+  Instead:
+    1. User types their password: "mypassword"
+    2. You hash it: bcrypt.hash("mypassword", ...) = "newHash"
+    3. Compare newHash with the stored hash in DB
+    4. bcrypt.compare() can tell if they came from the same original!
+
+  This is the magic of bcrypt — it can compare without reversing.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW BCRYPT WORKS — THE FULL EXPLANATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  bcrypt is a password hashing algorithm designed specifically for
+  storing passwords. It has two special properties:
+
+  Property 1: Salting
+  ────────────────────
+  A "salt" is a random string added to the password before hashing.
+  bcrypt generates a NEW random salt every time you call bcrypt.hash().
+
+  Without salt (MD5, SHA256 — DO NOT use for passwords):
+    hash("password123") = "482c811da5d5b4bc6d497ffa98491e38"  ← always same!
+    Two users with "password123" have IDENTICAL hashes.
+    Hackers use "rainbow tables" (precomputed hash → password tables)
+    to instantly reverse simple hashes.
+
+  With bcrypt salt:
+    hash("password123" + salt1) = "$2a$12$eImiTXuW..."  ← unique!
+    hash("password123" + salt2) = "$2a$12$3LKascwm..."  ← different!
+    Same password → different hash every time.
+    Rainbow table attacks are impossible.
+
+  The salt is STORED INSIDE the hash string:
+    "$2a$12$eImiTXuWVxfM37uY4JANjQ...."
+      $2a  = bcrypt algorithm version
+      $12  = salt rounds (cost factor)
+      next 22 chars = the salt itself
+      remaining    = the actual hash
+
+  When comparing: bcrypt reads the salt out of the stored hash,
+  applies it to the input password, then compares. No decryption needed!
+
+  Property 2: Intentional Slowness (Cost Factor)
+  ────────────────────────────────────────────────
+  SALT_ROUNDS = 12 in our code.
+  This controls how many times bcrypt runs the hashing algorithm.
+  At 12 rounds: ~300ms per hash on average hardware.
+
+  Why be slow intentionally?
+  Normal code should be fast. But for passwords, slow = secure.
+  If hashing takes 300ms, a hacker trying 1 million passwords
+  would need: 1,000,000 × 0.3s = 83 HOURS just for one user.
+  Plus they'd need to do this for every user in the database.
+  The attack becomes computationally impractical.
+
+  Common salt round values:
+    8  rounds → very fast, less secure (not recommended)
+    10 rounds → Express.js and many tutorials recommend this
+    12 rounds → good balance of security and speed (we use this)
+    14 rounds → very secure, noticeably slow for users (login ~1 second)
+
+  SALT_ROUNDS does NOT need to be secret — it's stored in the hash.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CODE WALKTHROUGH — authController.js
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  const bcrypt = require("bcryptjs");
+  ────────────────────────────────────
+  Import bcryptjs. Note: "bcryptjs" NOT "bcrypt".
+  bcryptjs is a pure JavaScript implementation — works on all
+  platforms without any native code compilation.
+  (bcrypt requires C++ compilation — can fail on some systems.)
+
+  ─────────────────────────────────────────────────────────────
+
+  SELECT id FROM users WHERE email = ?
+  ──────────────────────────────────────
+  We only SELECT id (not the whole row) because we only need
+  to know IF the user exists. Fetching less data = faster query.
+
+  We do this check instead of relying on MySQL's UNIQUE constraint
+  because:
+    MySQL UNIQUE error message: "Duplicate entry 'x' for key 'email'"
+    Our message: "An account with this email already exists"
+  Much friendlier for the client!
+
+  Status 409 Conflict:
+    409 = standard HTTP code for "the request conflicts with
+    the current state of the server" (duplicate resource).
+
+  ─────────────────────────────────────────────────────────────
+
+  email.toLowerCase()
+  ────────────────────
+  Always normalize emails to lowercase before saving.
+  "Alice@Example.COM" and "alice@example.com" are the same email.
+  Without normalization, someone could register twice with the
+  same email by changing letter casing.
+
+  ─────────────────────────────────────────────────────────────
+
+  const password_hash = await bcrypt.hash(password, SALT_ROUNDS);
+  ────────────────────────────────────────────────────────────────
+  bcrypt.hash() is async (intentionally slow).
+  Returns a 60-character string like:
+    "$2a$12$eImiTXuWVxfM37uY4JANjQmsiMsgr/G6a2fGLHY5f4vlEOX7fWzBO"
+
+  This hash is what we store in the database — NEVER the raw password.
+
+  ─────────────────────────────────────────────────────────────
+
+  SELECT id, name, email, is_active, created_at FROM users WHERE id = ?
+  ─────────────────────────────────────────────────────────────────────
+  We explicitly list columns — password_hash is NOT in the list.
+  NEVER return password_hash in any response. Ever.
+  Even if it's hashed, there's no reason for the client to have it.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CODE WALKTHROUGH — authRoutes.js (Validation)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  body("email").isEmail().normalizeEmail()
+  ──────────────────────────────────────────
+  .isEmail() uses a regex to verify the format looks like an email.
+  "notanemail" → fails
+  "user@" → fails
+  "user@example.com" → passes
+
+  .normalizeEmail() sanitizes the email:
+    Converts to lowercase
+    For Gmail: removes dots (user.name@ == username@)
+    Removes Gmail tags (user+tag@ → user@)
+
+  body("password").isLength({ min: 6 })
+  ───────────────────────────────────────
+  Minimum 6 characters for password.
+  We do NOT check for uppercase/numbers/symbols here (can be too strict).
+  bcrypt handles security regardless of password complexity.
+  Note: we do NOT store the password — only the hash. So we can
+  only validate length BEFORE hashing.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  REGISTRATION FLOW — FULL REQUEST TRACE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  POST http://localhost:3000/api/auth/register
+  Body: { "name": "Charlie", "email": "charlie@test.com", "password": "secret99" }
+
+  Step 1: server.js
+    express.json() parses body → req.body = { name, email, password }
+    app.use("/api/auth", authRoutes) → hands off to authRoutes
+
+  Step 2: authRoutes.js — validRegister runs
+    body("name").notEmpty() → "Charlie" → PASS
+    body("email").isEmail() → "charlie@test.com" → PASS
+    body("password").isLength({min:6}) → "secret99" (8 chars) → PASS
+
+  Step 3: handleValidationErrors
+    No errors → calls next()
+
+  Step 4: authController.register runs
+    SELECT id FROM users WHERE email = 'charlie@test.com'
+    → rows = [] (no one has this email yet) → continue
+
+    bcrypt.hash("secret99", 12)
+    → wait ~300ms
+    → password_hash = "$2a$12$..."
+
+    INSERT INTO users (name, email, password_hash)
+    VALUES ('Charlie', 'charlie@test.com', '$2a$12$...')
+    → result.insertId = 3
+
+    SELECT id, name, email, is_active, created_at FROM users WHERE id = 3
+    → newUser = { id:3, name:"Charlie", email:"charlie@test.com", ... }
+
+  Step 5: Response
+    res.status(201).json({
+      success: true,
+      message: "Account created successfully!",
+      user: { id:3, name:"Charlie", email:"charlie@test.com", ... }
+    })
+
+  ✅ Charlie can now log in (Stage 9)!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  POSTMAN TESTING — STAGE 8
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  TEST 1: Register a new user (should succeed)
+    Method: POST
+    URL:    http://localhost:3000/api/auth/register
+    Body (raw JSON):
+    {
+      "name": "Charlie",
+      "email": "charlie@test.com",
+      "password": "secret99"
+    }
+    Expected: 201 Created
+    {
+      "success": true,
+      "message": "Account created successfully! You can now log in.",
+      "user": { "id": 3, "name": "Charlie", "email": "charlie@test.com", ... }
+    }
+    NOTE: password is NOT in the response! Only id, name, email, etc.
+
+  TEST 2: Register same email again (should fail)
+    Same request as Test 1 again.
+    Expected: 409 Conflict
+    { "success": false, "message": "An account with this email already exists" }
+
+  TEST 3: Missing name (validation)
+    Body: { "email": "new@test.com", "password": "abc123" }
+    Expected: 422, { "errors": [{ "msg": "Name is required" }] }
+
+  TEST 4: Invalid email format (validation)
+    Body: { "name": "Dave", "email": "notanemail", "password": "abc123" }
+    Expected: 422, { "errors": [{ "msg": "Please provide a valid email address" }] }
+
+  TEST 5: Password too short (validation)
+    Body: { "name": "Dave", "email": "dave@test.com", "password": "hi" }
+    Expected: 422, { "errors": [{ "msg": "Password must be at least 6 characters" }] }
+
+  VERIFY IN MYSQL WORKBENCH:
+    USE task_manager_db;
+    SELECT id, name, email, password_hash FROM users;
+
+    You'll see Charlie's row.
+    Notice password_hash is a 60-character string starting with "$2a$12$..."
+    NOT "secret99" — the real password is completely hidden! ✅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CURRENT FOLDER STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  crud/
+  ├── config/
+  │   └── db.js
+  ├── controllers/
+  │   ├── authController.js        ← NEW: register function
+  │   └── taskController.js
+  ├── database/
+  │   └── schema.sql
+  ├── middleware/
+  │   ├── errorMiddleware.js
+  │   └── validate.js
+  ├── routes/
+  │   ├── authRoutes.js            ← NEW: POST /api/auth/register
+  │   └── taskRoutes.js
+  ├── notes/
+  ├── .env
+  ├── package.json
+  └── server.js                    ← mounts /api/auth
+
+════════════════════════════════════════════════════════════════════
+  ✏️  YOUR TASK — Try This Yourself!
+════════════════════════════════════════════════════════════════════
+
+  TASK 1: Run all 5 Postman tests above.
+    Most importantly: verify in MySQL Workbench that the new user's
+    password_hash is unreadable gibberish (not your actual password).
+
+  TASK 2: Understand bcrypt.hash() timing
+    In authController.js, add a timer to see how long hashing takes:
+
+    const start = Date.now();
+    const password_hash = await bcrypt.hash(password, 12);
+    console.log(`Hashing took: ${Date.now() - start}ms`);
+
+    Register a user and look at your terminal output.
+    You should see something like "Hashing took: 280ms"
+    Now change 12 to 8 and compare the time.
+    Then change back to 12.
+
+  TASK 3: Try to read the hash back
+    In MySQL Workbench, copy the password_hash value.
+    Go to any online bcrypt decoder (google "bcrypt reverse").
+    You'll find it's IMPOSSIBLE to reverse. That's the point!
+    The only way to verify a password is bcrypt.compare() — coming Stage 9.
+
+════════════════════════════════════════════════════════════════════
+  WHAT'S NEXT — STAGE 9
+════════════════════════════════════════════════════════════════════
+
+  In Stage 9 we will:
+    - Build POST /api/auth/login
+    - Use bcrypt.compare() to check the entered password against the hash
+    - Learn what JWT (JSON Web Token) is and how it works
+    - Generate a JWT token after successful login
+    - Return the token to the client
+    - Understand the token structure: header.payload.signature
+
+════════════════════════════════════════════════════════════════════

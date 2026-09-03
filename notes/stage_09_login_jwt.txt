@@ -1,0 +1,380 @@
+════════════════════════════════════════════════════════════════════
+  STAGE 9 — Login & JWT Authentication
+  What We Built, Why, How It Works
+  Task Manager REST API — Learning Journal
+════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT WE BUILT IN STAGE 9
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Files updated:
+    controllers/authController.js  ← added login() function
+    routes/authRoutes.js           ← added POST /api/auth/login
+
+  What you can do now:
+    POST /api/auth/register  → create account (Stage 8)
+    POST /api/auth/login     → verify password → get JWT token (Stage 9)
+
+  After login, the server returns a token. The client sends this
+  token on every future request. Stage 10 will verify the token.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  THE PROBLEM JWT SOLVES — WHY DO WE NEED TOKENS?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  HTTP is STATELESS — the server remembers NOTHING between requests.
+  Every request is treated as if it came from a stranger.
+
+  Problem: How does the server know WHO is making each request?
+
+  OLD APPROACH — Sessions (Stateful):
+  ─────────────────────────────────────
+  1. User logs in with email + password
+  2. Server creates a "session" record in DB or memory:
+     sessions table: { sessionId: "abc123", userId: 5, expiresAt: "..." }
+  3. Server sends "abc123" to client (in a cookie)
+  4. Every future request sends the cookie with "abc123"
+  5. Server looks up "abc123" in the sessions table to find the user
+
+  Problems with sessions:
+    - Server must store sessions somewhere (DB, Redis, memory)
+    - If you have 3 servers, all must share the session store
+    - Session lookup on every request = extra DB query
+    - Harder to scale
+
+  NEW APPROACH — JWT (Stateless):
+  ─────────────────────────────────
+  1. User logs in with email + password
+  2. Server creates a token with user data EMBEDDED:
+     Token contains: { id: 5, email: "alice@...", name: "Alice" }
+  3. Token is SIGNED with a secret key (so it can't be faked)
+  4. Server sends token to client. Server stores NOTHING.
+  5. Every future request sends the token
+  6. Server DECODES the token to read the user data — no DB lookup needed!
+
+  Benefits of JWT:
+    + No server-side storage required
+    + Works perfectly across multiple servers
+    + Self-contained (user info inside the token)
+    + Fast verification (just math, no DB query)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS A JWT? — ANATOMY OF THE TOKEN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  JWT = JSON Web Token
+  It is a string with 3 parts separated by dots:
+
+  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+  .
+  eyJpZCI6MiwiZW1haWwiOiJhbGljZUBleGFtcGxlLmNvbSIsIm5hbWUiOiJBbGljZSJ9
+  .
+  SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
+
+  PART 1: Header (algorithm info)
+  ─────────────────────────────────
+  Base64-decoded: { "alg": "HS256", "typ": "JWT" }
+  alg: the signing algorithm used (HS256 = HMAC-SHA256)
+  typ: always "JWT"
+
+  PART 2: Payload (your data)
+  ────────────────────────────
+  Base64-decoded: {
+    "id": 2,
+    "email": "alice@example.com",
+    "name": "Alice",
+    "iat": 1705312800,   ← "issued at" timestamp (auto-added by JWT)
+    "exp": 1705917600    ← "expires at" timestamp (auto-added by JWT)
+  }
+  This is called "claims" — data embedded in the token.
+  ANYONE can decode Base64 and read this. It's NOT secret!
+  Never put sensitive info (password, credit card) in the payload.
+
+  PART 3: Signature (tamper protection)
+  ──────────────────────────────────────
+  Calculated as:
+    HMAC-SHA256(
+      base64(header) + "." + base64(payload),
+      JWT_SECRET
+    )
+  The signature PROVES the token wasn't tampered with.
+  If someone changes the payload (e.g., changes id from 2 to 1
+  to pretend to be user 1), the signature won't match anymore.
+  The server will reject the token.
+
+  You can only CREATE a valid signature if you know JWT_SECRET.
+  That's why JWT_SECRET must be kept absolutely private.
+
+  Try it yourself:
+    Go to https://jwt.io
+    Paste any JWT token in the left panel.
+    You'll see the header and payload decoded on the right.
+    Notice: you can SEE the payload without the secret.
+    But you CANNOT change the payload and create a valid signature
+    without the secret.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CODE WALKTHROUGH — login controller
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  SELECT id, name, email, password_hash, is_active FROM users WHERE email = ?
+  ─────────────────────────────────────────────────────────────────────────────
+  This is the ONLY place we ever SELECT password_hash.
+  We need it to compare with the entered password.
+  After comparing, we immediately forget it (don't put it in response).
+
+  ─────────────────────────────────────────────────────────────────
+
+  "Invalid email or password"  (SAME message for wrong email AND wrong password)
+  ──────────────────────────────────────────────────────────────────────────────
+  Security principle: "Don't leak information to attackers."
+
+  If we said "Email not found" → attacker knows that email isn't registered.
+  They can use this to probe which emails have accounts.
+  If we said "Wrong password" → attacker knows the email IS registered.
+  They can now focus brute-force on that specific account.
+
+  By saying the same thing ("Invalid email or password") for BOTH cases,
+  we give attackers no useful information. They can't distinguish between
+  "email wrong" and "password wrong".
+
+  401 Unauthorized: standard code for "authentication failed".
+
+  ─────────────────────────────────────────────────────────────────
+
+  const isPasswordValid = await bcrypt.compare(password, user.password_hash)
+  ────────────────────────────────────────────────────────────────────────────
+  bcrypt.compare() does NOT decrypt. It:
+    1. Extracts the salt from user.password_hash (salt is embedded)
+    2. Hashes the entered "password" with that same salt
+    3. Compares result with user.password_hash
+    4. Returns true if they match, false if not
+
+  Returns: Promise<boolean>
+  We await it because hashing takes ~300ms.
+
+  ─────────────────────────────────────────────────────────────────
+
+  jwt.sign({ id, email, name }, JWT_SECRET, { expiresIn: "7d" })
+  ──────────────────────────────────────────────────────────────────
+  Creates and returns a JWT token string.
+
+  Payload { id, email, name }:
+    We include id so Stage 10 middleware can know which user
+    is making the request without a DB lookup.
+    We include email/name for convenience.
+    We do NOT include password_hash, is_active, etc.
+
+  JWT_SECRET (process.env.JWT_SECRET):
+    Must be long and random. Ours is set in .env.
+    Anyone who has this secret can forge tokens → keep it private!
+
+  { expiresIn: "7d" }:
+    The token is valid for 7 days.
+    After that, jwt.verify() throws TokenExpiredError.
+    Format examples: "30m", "2h", "7d", "365d", "1y"
+
+  ─────────────────────────────────────────────────────────────────
+
+  res.json({ ..., token, user: { id, name, email } })
+  ─────────────────────────────────────────────────────
+  The client receives the token.
+  They must save it (in localStorage, sessionStorage, or memory).
+  Every future API request must include it in the header:
+    Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+
+  The "Bearer" prefix is a convention from the OAuth spec.
+  It means "I am the bearer of this token."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  LOGOUT — WHY THERE'S NO SERVER ROUTE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  JWT is stateless. The server issues tokens but never stores them.
+  It cannot "cancel" a specific token.
+
+  Logout process:
+    CLIENT: delete the stored token from localStorage / memory
+    SERVER: does nothing — next request without token = 401
+
+  This is fundamentally different from session auth:
+    Session auth:  server deletes the session record → logged out
+    JWT auth:      client deletes the token → effectively logged out
+
+  The token still "works" technically until it expires, but since
+  the client deleted it, there's no way to use it anymore.
+
+  If you need REAL server-side invalidation (e.g., "log out
+  everywhere" after a security incident):
+    - Maintain a "token blacklist" table in DB or Redis
+    - On each request, check if token is in the blacklist
+    - This adds a DB lookup per request (like sessions)
+    - Most apps don't need this — short expiry times are sufficient
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  THE FULL AUTH FLOW (Login + Token Usage)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Step 1: Register
+    POST /api/auth/register  { name, email, password }
+    → Server hashes password, saves user
+    → Returns: { user: { id, name, email } }
+
+  Step 2: Login
+    POST /api/auth/login  { email, password }
+    → Server verifies password with bcrypt.compare()
+    → Signs a JWT with { id, email, name }
+    → Returns: { token: "eyJ...", user: { id, name, email } }
+    → CLIENT SAVES THE TOKEN
+
+  Step 3: Use the API (with token)
+    GET /api/tasks
+    Headers: { Authorization: "Bearer eyJ..." }
+    → Stage 10 middleware reads the token
+    → Verifies signature with JWT_SECRET
+    → Decodes payload: { id: 2, email: "alice@..." }
+    → Sets req.user = { id: 2, email: "alice@..." }
+    → Controller runs: SELECT * FROM tasks WHERE user_id = req.user.id
+    → Returns Alice's tasks only
+
+  Step 4: Token expires after 7 days
+    GET /api/tasks  (with expired token)
+    → Stage 10 middleware: jwt.verify() throws TokenExpiredError
+    → Returns: 401 { message: "Token expired. Please log in again." }
+    → Client redirects user to login page
+
+  Step 5: Logout
+    CLIENT deletes the token from storage
+    No server request needed
+    Next request without token → 401 → user must log in again
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  POSTMAN TESTING — STAGE 9
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Make sure server is running: npm run dev
+
+  TEST 1: Login with valid credentials
+    POST http://localhost:3000/api/auth/login
+    Body (raw JSON):
+    {
+      "email": "charlie@test.com",
+      "password": "secret99"
+    }
+    Expected: 200 OK
+    {
+      "success": true,
+      "message": "Login successful",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "user": { "id": 3, "name": "Charlie", "email": "charlie@test.com" }
+    }
+    → COPY THE TOKEN. You'll need it in Stage 10.
+
+  TEST 2: Wrong password
+    POST http://localhost:3000/api/auth/login
+    Body: { "email": "charlie@test.com", "password": "wrongpassword" }
+    Expected: 401 Unauthorized
+    { "success": false, "message": "Invalid email or password" }
+
+  TEST 3: Email not registered
+    POST http://localhost:3000/api/auth/login
+    Body: { "email": "nobody@nowhere.com", "password": "anything" }
+    Expected: 401 Unauthorized
+    { "success": false, "message": "Invalid email or password" }
+    Note: SAME message as wrong password — intentional!
+
+  TEST 4: Missing password (validation)
+    POST http://localhost:3000/api/auth/login
+    Body: { "email": "charlie@test.com" }
+    Expected: 422 { "errors": [{ "msg": "Password is required" }] }
+
+  TEST 5: Invalid email format (validation)
+    POST http://localhost:3000/api/auth/login
+    Body: { "email": "notanemail", "password": "secret99" }
+    Expected: 422 { "errors": [{ "msg": "Please provide a valid email" }] }
+
+  TEST 6: Decode your token at jwt.io
+    1. Copy the token from Test 1
+    2. Open https://jwt.io in a browser
+    3. Paste the token in the "Encoded" box on the left
+    4. See the decoded header and payload on the right
+    5. Notice: you can see id, email, name WITHOUT the secret
+    6. Notice: exp and iat timestamps are there
+    7. Try changing the payload and see: "Signature Verified" → fails
+       (signature doesn't match the changed payload)
+
+  TEST 7: Try logging in as Alice (from schema.sql sample data)
+    The schema.sql used a bcrypt hash of "password" as Alice's password.
+    POST /api/auth/login
+    Body: { "email": "alice@example.com", "password": "password" }
+    Expected: 200 OK with token
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CURRENT FOLDER STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  crud/
+  ├── config/
+  │   └── db.js
+  ├── controllers/
+  │   ├── authController.js        ← register + login + logout explanation
+  │   └── taskController.js
+  ├── database/
+  │   └── schema.sql
+  ├── middleware/
+  │   ├── authMiddleware.js        ← coming Stage 10
+  │   ├── errorMiddleware.js
+  │   └── validate.js
+  ├── routes/
+  │   ├── authRoutes.js            ← register + login routes
+  │   └── taskRoutes.js
+  ├── notes/
+  ├── .env
+  ├── package.json
+  └── server.js
+
+════════════════════════════════════════════════════════════════════
+  ✏️  YOUR TASK — Try This Yourself!
+════════════════════════════════════════════════════════════════════
+
+  TASK 1: Login and decode the token
+    1. POST /api/auth/login with Charlie's credentials
+    2. Copy the token from the response
+    3. Go to https://jwt.io and decode it
+    4. Confirm you can see { id, email, name, iat, exp }
+    5. Calculate: exp - iat = how many seconds? Divide by 86400 = 7 days ✅
+
+  TASK 2: Use Postman "Environment Variables" to save the token
+    This saves time — instead of copying the token manually each test:
+    1. In Postman, click "Environments" (left sidebar) → New Environment
+    2. Name it "Task Manager Dev"
+    3. Add variable: key = "token", value = (empty for now)
+    4. In your login request, go to the "Tests" tab in Postman
+    5. Add this script:
+         pm.environment.set("token", pm.response.json().token);
+    6. Send the login request — the token is now saved automatically!
+    7. In other requests, use: {{token}} in the Authorization header
+       (we'll use this properly in Stage 10)
+
+  TASK 3: Try to understand what happens at expiry
+    In .env, temporarily change: JWT_EXPIRES_IN=5s
+    Restart the server. Login. Wait 6 seconds.
+    In Stage 10, try to use that token → should get "Token expired" error.
+    Change it back to 7d when done.
+
+════════════════════════════════════════════════════════════════════
+  WHAT'S NEXT — STAGE 10
+════════════════════════════════════════════════════════════════════
+
+  In Stage 10 we will:
+    - Create middleware/authMiddleware.js
+    - It reads the Authorization: Bearer <token> header
+    - Verifies the token using jwt.verify()
+    - If valid: puts decoded user into req.user and calls next()
+    - If invalid/expired/missing: returns 401
+    - Protect task routes: only logged-in users can access them
+    - Tasks will automatically belong to the logged-in user
+      (user_id = req.user.id instead of hardcoded 1)
+
+════════════════════════════════════════════════════════════════════

@@ -1,0 +1,317 @@
+════════════════════════════════════════════════════════════════════
+  STAGE 7 — Validation & Centralized Error Handling
+  What We Built, Why, How It Works
+  Task Manager REST API — Learning Journal
+════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT WE BUILT IN STAGE 7
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Files created:
+    middleware/errorMiddleware.js  ← centralized error handler
+    middleware/validate.js         ← validation error checker
+
+  Files updated:
+    routes/taskRoutes.js           ← added express-validator rules
+    controllers/taskController.js  ← use next(error) pattern
+    server.js                      ← register error middleware last
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHY VALIDATE INPUT?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Without validation, clients can send anything:
+    POST /api/tasks with body {}          → title is undefined → crash!
+    POST /api/tasks body {"priority":"URGENT"} → ENUM fails in MySQL
+    GET  /api/tasks/abc                   → parseInt("abc") = NaN → weird SQL
+    POST /api/tasks body {"due_date":"yesterday"} → invalid date → MySQL error
+
+  With validation:
+    ✅ Catch bad input BEFORE it reaches the database
+    ✅ Return friendly error messages (not raw MySQL errors)
+    ✅ Controllers only receive clean, valid data
+    ✅ Database stays healthy (no garbage data inserted)
+
+  Validation is your API's "bouncer" — bad data doesn't get in.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW express-validator WORKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  express-validator gives you functions to describe rules:
+
+  WHERE to look:
+    body("fieldName")   → check req.body.fieldName
+    param("fieldName")  → check req.params.fieldName (URL param)
+    query("fieldName")  → check req.query.fieldName (query string)
+
+  WHAT to check (validators):
+    .notEmpty()          → must not be ""
+    .isInt({ min:1 })    → must be integer ≥ 1
+    .isIn(["a","b","c"]) → must be one of these exact values
+    .isDate()            → must be a valid date string
+    .isEmail()           → must be a valid email format (used in Stage 8)
+    .isLength({min, max})→ string length within range
+    .optional()          → only validate if field is present
+
+  HOW to clean (sanitizers):
+    .trim()              → remove leading/trailing whitespace
+    .escape()            → convert <, >, " to HTML entities (XSS protection)
+
+  MESSAGES:
+    .withMessage("...")  → custom error message for this specific rule
+
+  CHAINING — rules are chained in order:
+    body("title")
+      .trim()                         // sanitize first
+      .notEmpty()                     // then validate
+      .withMessage("Title required")  // custom message for notEmpty
+      .isLength({ max: 255 })         // another rule
+      .withMessage("Title too long")  // message for isLength
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW THE VALIDATION FLOW WORKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  In taskRoutes.js:
+    router.post("/", validCreateTask, handleValidationErrors, createTask)
+
+  This is an array of middleware. Express runs them LEFT TO RIGHT:
+
+  Step 1: validCreateTask (array of rules)
+    Express runs each rule in the array.
+    If a rule fails, the error is RECORDED but execution continues.
+    All rules run — so you get ALL errors at once, not just the first.
+
+  Step 2: handleValidationErrors
+    Calls validationResult(req) to collect all recorded errors.
+    If errors exist → return 422 with the errors array. STOP.
+    If no errors   → call next(). Continue to step 3.
+
+  Step 3: createTask (controller)
+    Only runs if BOTH steps above passed with no errors.
+    The data in req.body is now guaranteed to be valid.
+
+  Visual:
+    POST /api/tasks  (body: { "priority": "URGENT" })
+                │
+                ▼
+    [body("title").notEmpty()] → FAILS! records error: "Title required"
+    [body("priority").isIn(["low","medium","high"])] → FAILS! records error
+    [body("description").optional()] → passes (not present)
+                │
+                ▼
+    handleValidationErrors:
+      validationResult has 2 errors → return 422:
+      {
+        "success": false,
+        "message": "Validation failed. Check the errors array.",
+        "errors": [
+          { "msg": "Title is required", "path": "title", "location": "body" },
+          { "msg": "Priority must be low, medium, or high", "path": "priority", ... }
+        ]
+      }
+                │
+    createTask: NEVER RUNS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW CENTRALIZED ERROR HANDLING WORKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  BEFORE (Stage 6) — error handling in EVERY controller:
+  ────────────────────────────────────────────────────────
+  const getAllTasks = async (req, res) => {
+    try { ... }
+    catch (error) {
+      res.status(500).json({ message: error.message }); // repeated everywhere!
+    }
+  };
+
+  AFTER (Stage 7) — next(error) pattern:
+  ────────────────────────────────────────────────────────
+  const getAllTasks = async (req, res, next) => {  // ← next added
+    try { ... }
+    catch (error) {
+      next(error);  // ← just pass it forward, ONE LINE!
+    }
+  };
+
+  The error travels to errorHandler in server.js which handles it.
+
+  Benefits:
+    ✅ One place controls ALL error responses (consistent format)
+    ✅ Controllers are cleaner and shorter
+    ✅ Easy to change the error format for all routes at once
+    ✅ Easy to add error logging (one place to add it)
+
+  HOW 4-ARGUMENT MIDDLEWARE WORKS:
+  ─────────────────────────────────
+  Normal middleware:     (req, res, next) → 3 args
+  Error middleware:      (err, req, res, next) → 4 args
+
+  Express checks the NUMBER of arguments.
+  If it sees 4, it ONLY runs this middleware when next(error) is called.
+  It's skipped entirely for normal requests.
+
+  The 4-arg error handler MUST be LAST in server.js:
+    app.use(notFound);      ← makes 404 errors
+    app.use(errorHandler);  ← catches ALL errors ← LAST
+
+  Error objects we create:
+    const error = new Error("Task not found");
+    error.statusCode = 404;
+    next(error);
+    // errorHandler reads error.statusCode and error.message
+
+  Plain thrown errors (from MySQL etc.):
+    → They don't have statusCode set
+    → errorHandler defaults to 500
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW A REQUEST FLOWS NOW — FULL TRACE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  HAPPY PATH: POST /api/tasks  body: {"title":"Valid task","priority":"high"}
+    server.js: express.json() parses body
+    server.js: routes to taskRoutes
+    taskRoutes: validation rules run → all pass
+    taskRoutes: handleValidationErrors → no errors → next()
+    taskRoutes: createTask runs → INSERT into MySQL
+    taskRoutes: res.status(201).json({ data: newTask })
+    ✅ Client gets 201 Created
+
+  VALIDATION FAILURE: POST /api/tasks  body: {} (empty)
+    taskRoutes: body("title").notEmpty() FAILS → records error
+    taskRoutes: handleValidationErrors → errors found → 422 returned
+    createTask: NEVER RUNS
+    ✅ Client gets 422 with { errors: [{ msg: "Title is required" }] }
+
+  NOT FOUND: GET /api/tasks/999
+    taskRoutes: param("id").isInt() → passes
+    taskRoutes: handleValidationErrors → no validation errors → next()
+    getTaskById: SELECT WHERE id=999 → rows = []
+    getTaskById: const err = new Error("Task 999 not found"); err.statusCode=404
+    getTaskById: next(err)
+    errorHandler: statusCode=404 → res.status(404).json({ message: "..." })
+    ✅ Client gets 404 Not Found
+
+  UNKNOWN ROUTE: GET /api/bananas
+    No route matches
+    notFound middleware runs:
+      const error = new Error("Route GET /api/bananas not found")
+      error.statusCode = 404
+      next(error)
+    errorHandler: statusCode=404 → res.status(404).json({ ... })
+    ✅ Client gets 404
+
+  SERVER CRASH: MySQL is down while handling GET /api/tasks
+    getAllTasks: pool.query() throws an error
+    getAllTasks: catch(error) { next(error) }
+    errorHandler: error has no statusCode → defaults to 500
+    ✅ Client gets 500, developer sees stack trace (development mode)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  POSTMAN TESTING — STAGE 7
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  TEST VALIDATION — these should return 422:
+
+  Test 1: Create task with no title
+    POST http://localhost:3000/api/tasks
+    Body: {}
+    Expected: 422 + { errors: [{ msg: "Title is required" }] }
+
+  Test 2: Create task with bad priority
+    POST http://localhost:3000/api/tasks
+    Body: { "title": "Test", "priority": "URGENT" }
+    Expected: 422 + { errors: [{ msg: "Priority must be low, medium, or high" }] }
+
+  Test 3: Create task with bad due_date
+    POST http://localhost:3000/api/tasks
+    Body: { "title": "Test", "due_date": "not-a-date" }
+    Expected: 422 + { errors: [{ msg: "Due date must be valid (YYYY-MM-DD)" }] }
+
+  Test 4: Get task with non-integer ID
+    GET http://localhost:3000/api/tasks/abc
+    Expected: 422 + { errors: [{ msg: "Task ID must be a positive integer" }] }
+
+  Test 5: Update status with invalid value
+    PATCH http://localhost:3000/api/tasks/1/status
+    Body: { "status": "done" }
+    Expected: 422 + { errors: [{ msg: "Status must be: pending, in_progress..." }] }
+
+  TEST NORMAL OPERATION — these should work:
+
+  Test 6: Create valid task
+    POST /api/tasks
+    Body: { "title": "Valid task", "priority": "high", "due_date": "2024-12-31" }
+    Expected: 201 Created
+
+  Test 7: Get stats
+    GET /api/tasks/stats
+    Expected: 200 + stats object with counts
+
+  Test 8: Unknown route
+    GET /api/anything-random
+    Expected: 404 + { message: "Route GET /api/anything-random not found" }
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CURRENT FOLDER STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  crud/
+  ├── config/
+  │   └── db.js
+  ├── controllers/
+  │   └── taskController.js        ← uses next(error), cleaner
+  ├── database/
+  │   └── schema.sql
+  ├── middleware/
+  │   ├── errorMiddleware.js       ← NEW: notFound + errorHandler
+  │   └── validate.js              ← NEW: handleValidationErrors
+  ├── routes/
+  │   └── taskRoutes.js            ← has validation rules on each route
+  ├── notes/
+  ├── .env
+  ├── package.json
+  └── server.js                    ← registers error middleware last
+
+════════════════════════════════════════════════════════════════════
+  ✏️  YOUR TASK — Try This Yourself!
+════════════════════════════════════════════════════════════════════
+
+  TASK 1: Trigger every validation error
+    Try all 5 "bad" tests above in Postman.
+    Read the errors array in the response.
+    Notice how you get ALL errors at once (not just first one).
+
+  TASK 2: Add a minimum length to title
+    In taskRoutes.js, in the validCreateTask rules, add:
+      .isLength({ min: 3, max: 255 })
+      .withMessage("Title must be between 3 and 255 characters")
+    Test: POST /api/tasks body: { "title": "ab" }
+    Expected: 422 with the length error.
+
+  TASK 3: Understand the stack trace
+    When NODE_ENV=development (your .env), error responses include
+    a "stack" field. Try hitting GET /api/tasks/abc
+    Look at the "stack" field in the response.
+    The stack trace shows exactly where the error occurred in the code.
+    Now change NODE_ENV=production in .env and restart the server.
+    Hit the same bad request — the stack trace should be GONE.
+    Change it back to development when done.
+
+════════════════════════════════════════════════════════════════════
+  WHAT'S NEXT — STAGE 8
+════════════════════════════════════════════════════════════════════
+
+  In Stage 8 we will:
+    - Create the users table interaction (already in DB from Stage 3)
+    - Build POST /api/auth/register endpoint
+    - Hash the password with bcryptjs before saving
+    - Understand what hashing is and why it's irreversible
+    - Create authController.js and authRoutes.js
+    - Test registration with Postman
+
+════════════════════════════════════════════════════════════════════

@@ -1,0 +1,445 @@
+════════════════════════════════════════════════════════════════════
+  STAGE 4 — Connect Node.js to MySQL
+  What We Built, Why, How It Works
+  Task Manager REST API — Learning Journal
+════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT WE BUILT IN STAGE 4
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  File created:   config/db.js    — MySQL connection pool
+  File updated:   server.js       — imports pool, new /db-test route
+
+  The app now:
+    ✅ Connects to MySQL on startup
+    ✅ Has a connection pool (10 simultaneous connections ready)
+    ✅ GET /db-test runs real SQL and returns live data from MySQL
+    ✅ Exits cleanly if MySQL is unavailable (instead of crashing weirdly)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  STEP 1: config/db.js — Why This File Exists
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  We could write the MySQL connection directly inside server.js,
+  or inside every file that needs the database. But that would mean:
+    - Repeating the same config code everywhere
+    - If we change a setting, we'd have to update 10 files
+    - Hard to test in isolation
+
+  Instead, we follow the DRY principle:
+    DRY = Don't Repeat Yourself
+
+  config/db.js creates the pool ONCE. Every other file just does:
+    const pool = require("../config/db");
+  And they get the already-configured, already-connected pool.
+
+  The "config/" folder is a convention — it holds configuration files.
+  (We'll add more config files later for things like JWT settings.)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS A CONNECTION POOL?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Without a pool (single connection):
+  ─────────────────────────────────────
+  Imagine a restaurant with ONE waiter.
+  Customer 1 orders → waiter takes order → goes to kitchen → comes back
+  Customer 2 has to WAIT the whole time. ← bad!
+
+  Creating a new connection for each request:
+  ────────────────────────────────────────────
+  Like hiring a new waiter for every customer, then firing them
+  when done. Creating/destroying connections is EXPENSIVE.
+  MySQL connection handshake takes 20-50ms. With 100 requests/second,
+  that's wasted time on every single request.
+
+  With a Connection Pool:
+  ────────────────────────
+  Like having 10 waiters standing by.
+  When a request comes in, it grabs a free waiter (connection).
+  When the query is done, the waiter goes back to the standby pool.
+  The next request instantly gets an available waiter.
+
+  Pool lifecycle:
+    1. App starts → pool creates connections (lazily, on first use)
+    2. Request comes in → pool assigns a free connection
+    3. Query runs → result returned
+    4. Connection RELEASED back to pool (not destroyed!)
+    5. Next request gets the same connection again
+
+  connectionLimit: 10 means max 10 simultaneous DB operations.
+  If all 10 are busy, new requests wait (because waitForConnections: true).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  UNDERSTANDING ASYNC / AWAIT / PROMISES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  This is the most important JavaScript concept for backend work.
+  Read this section carefully!
+
+  THE PROBLEM: JavaScript is Single-Threaded
+  ────────────────────────────────────────────
+  JavaScript runs ONE thing at a time. It cannot do two things
+  simultaneously (unlike Java with threads).
+
+  So what happens when we query a database?
+    → It takes 5–50 milliseconds to get a response from MySQL.
+    → If JS waited (blocked) during that time, the whole server
+      would freeze — no other requests could be handled.
+    → With 1000 users, this would be catastrophic.
+
+  THE SOLUTION: Asynchronous Operations
+  ────────────────────────────────────────
+  Instead of waiting (blocking), JavaScript:
+    1. Sends the query to MySQL
+    2. Immediately moves on to handle other things
+    3. When MySQL responds, JS comes back and processes the result
+
+  This is called "non-blocking" I/O. It's why Node.js is fast.
+
+  HOW WE WRITE ASYNC CODE: Promises
+  ────────────────────────────────────
+  A Promise is an object that represents a future value.
+  It's like a "receipt" — you don't have the food yet,
+  but you have a promise that food will come.
+
+  A Promise has 3 states:
+    PENDING   → operation hasn't completed yet
+    FULFILLED → operation succeeded, value is available
+    REJECTED  → operation failed, error is available
+
+  THE OLD WAY — Callbacks (ugly, "callback hell"):
+  ─────────────────────────────────────────────────
+  connection.query("SELECT * FROM tasks", function(err, rows) {
+    if (err) {
+      connection.query("log error...", function(err2, result2) {
+        // nested inside nested inside nested...
+        // this is called "callback hell" or "pyramid of doom"
+      });
+    }
+    // do something with rows...
+  });
+
+  THE MODERN WAY — async/await (clean, readable):
+  ─────────────────────────────────────────────────
+  async function getTasks() {
+    try {
+      const [rows] = await pool.query("SELECT * FROM tasks");
+      return rows;
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  It reads like normal synchronous code, but it's actually async!
+
+  RULES for async/await:
+  ─────────────────────────
+  Rule 1: If you use "await", the function MUST be marked "async"
+    async (req, res) => { ... }       ← has async keyword
+
+  Rule 2: "await" pauses ONLY the current async function,
+    not the whole server. Other requests still get handled.
+
+  Rule 3: Wrap "await" calls in try/catch to handle errors:
+    try {
+      const result = await pool.query("...");
+    } catch (error) {
+      // handle the error
+    }
+
+  Rule 4: await only works with Promises. pool.query() returns
+    a Promise (because mysql2/promise package).
+
+  WHAT pool.query() RETURNS:
+  ─────────────────────────────
+  await pool.query("SELECT * FROM tasks")
+  → Returns: [rows, fields]
+    rows   = an array of row objects: [{ id:1, title:"..." }, ...]
+    fields = column metadata (rarely needed)
+
+  We destructure:
+    const [rows] = await pool.query("SELECT * FROM tasks");
+    // rows is now the array of row objects
+
+  Example of what rows looks like:
+    [
+      { id: 1, title: "Learn Node.js", status: "completed" },
+      { id: 2, title: "Learn Express",  status: "completed" },
+    ]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CODE WALKTHROUGH — config/db.js LINE BY LINE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  const mysql = require("mysql2/promise");
+  ──────────────────────────────────────────
+  We import "mysql2/promise" (NOT just "mysql2").
+  The "/promise" version gives us Promises and async/await support.
+  Regular "mysql2" uses callbacks (older style).
+
+  ─────────────────────────────────────────────────────────────────
+
+  const pool = mysql.createPool({ host, user, password, ... });
+  ──────────────────────────────────────────────────────────────────
+  Creates the pool. Does NOT connect yet (lazy connection).
+  The pool will connect when the first query is made.
+  All settings come from process.env (read from .env file).
+
+  ─────────────────────────────────────────────────────────────────
+
+  const testConnection = async () => { ... }
+  ────────────────────────────────────────────
+  "async () => {...}" means this is an async arrow function.
+  Inside we can use "await".
+
+  ─────────────────────────────────────────────────────────────────
+
+  const connection = await pool.getConnection();
+  ───────────────────────────────────────────────
+  Borrows ONE connection from the pool.
+  If MySQL is not running or credentials are wrong, this throws.
+  The "await" waits for the connection attempt to complete.
+
+  ─────────────────────────────────────────────────────────────────
+
+  connection.release();
+  ──────────────────────
+  Returns the connection back to the pool.
+  CRITICAL: if you forget this, the connection is "leaked".
+  The pool thinks it's in use. Eventually all 10 connections
+  are leaked and new requests get stuck forever.
+  Always release connections you manually get with getConnection().
+  (pool.query() handles release automatically — no leak risk)
+
+  ─────────────────────────────────────────────────────────────────
+
+  process.exit(1);
+  ─────────────────
+  Exits the Node.js process with exit code 1 (means failure).
+  Exit code 0 = success, 1+ = error.
+  We exit if DB connection fails because the app is useless without it.
+  Better to fail loudly than silently pretend everything is fine.
+
+  ─────────────────────────────────────────────────────────────────
+
+  module.exports = pool;
+  ───────────────────────
+  Makes the pool available to other files via require().
+  This is Node.js's module system (CommonJS style).
+  Other files do:
+    const pool = require("./config/db");
+  They get the exact same pool object (singletons in Node.js modules).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CODE WALKTHROUGH — GET /db-test ROUTE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  app.get("/db-test", async (req, res) => {
+  ──────────────────────────────────────────
+  Note "async" before (req, res).
+  This makes the callback an async function so we can use "await" inside.
+
+  ─────────────────────────────────────────────────────────────────
+
+  const [versionRows] = await pool.query("SELECT VERSION() AS version");
+  ────────────────────────────────────────────────────────────────────────
+  pool.query() is a Promise. "await" waits for it.
+  Returns [rows, fields]. We only want rows, so we destructure: [rows].
+  We named the variable "versionRows" so it's clear what it holds.
+  versionRows = [{ version: "8.0.32" }]   ← array with one row
+
+  ─────────────────────────────────────────────────────────────────
+
+  versionRows[0].version
+  ──────────────────────
+  [0] gets the first (and only) row.
+  .version gets the "version" column value from that row.
+
+  ─────────────────────────────────────────────────────────────────
+
+  SELECT t.id, t.title, u.name AS owner FROM tasks t JOIN users u ON t.user_id = u.id
+  ──────────────────────────────────────────────────────────────────────────────────────
+  This is a SQL JOIN. It combines data from two tables.
+  "t" is an alias for "tasks" (shorter to write)
+  "u" is an alias for "users"
+  "u.name AS owner" renames the column to "owner" in the result.
+  ON t.user_id = u.id → the join condition (match the keys)
+
+  ─────────────────────────────────────────────────────────────────
+
+  try { ... } catch (error) { res.status(500)... }
+  ──────────────────────────────────────────────────
+  If ANY await inside try{} throws an error, we jump to catch{}.
+  We send a 500 response with the error message.
+  Without try/catch, an unhandled error would crash the server!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW THE REQUEST FLOWS — GET /db-test
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Postman: GET http://localhost:3000/db-test
+              │
+              ▼
+  Express: receives request, matches GET /db-test
+              │
+              ▼
+  Handler starts (async function)
+              │
+              ▼
+  await pool.query("SELECT VERSION()")
+    → pool grabs a free connection from the pool
+    → sends query to MySQL (running on localhost:3306)
+    → MySQL executes the query
+    → MySQL sends back result
+    → await resumes, result stored in versionRows
+    → pool releases connection back
+              │
+              ▼
+  await pool.query("SELECT COUNT(*) FROM users")
+    → same process repeats
+              │
+    [... more queries ...]
+              │
+              ▼
+  res.json({ database_info, users, tasks })
+    → Express sends JSON response back to Postman
+              │
+              ▼
+  Postman shows: 200 OK + all the data from MySQL!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW TO RUN & TEST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  BEFORE starting:
+    ✅ Make sure MySQL is running on your computer
+       (Check MySQL Workbench — can you connect? If yes, MySQL is running)
+    ✅ Make sure you ran schema.sql in Stage 3
+    ✅ Check .env has the correct DB_PASSWORD
+
+  Start the server:
+    npm run dev
+
+  Expected output in terminal:
+    🚀 Server running — Stage 4: MySQL Connected
+       http://localhost:3000
+       Test DB: http://localhost:3000/db-test
+
+    ✅ MySQL connected successfully!
+
+  Test in Postman:
+    GET http://localhost:3000/db-test
+
+  Expected response:
+    {
+      "success": true,
+      "database_info": {
+        "mysql_version": "8.0.xx",
+        "database_name": "task_manager_db",
+        "total_users": 2,
+        "total_tasks": 6
+      },
+      "users": [ { "id": 1, "name": "Alice Johnson", ... }, ... ],
+      "tasks": [ { "id": 1, "title": "Learn Node.js", "owner": "Alice Johnson" }, ... ]
+    }
+
+  TROUBLESHOOTING:
+  ─────────────────
+  Error: "Access denied for user 'root'@'localhost'"
+    → Wrong password in .env. Update DB_PASSWORD.
+
+  Error: "Unknown database 'task_manager_db'"
+    → You didn't run schema.sql yet. Go back to Stage 3.
+
+  Error: "ECONNREFUSED 127.0.0.1:3306"
+    → MySQL server is not running. Start it:
+      Windows: Open Services (services.msc) → find MySQL80 → Start
+      OR: Open MySQL Workbench → it usually starts MySQL automatically
+
+  Server starts but shows "❌ MySQL connection failed":
+    → Check DB_HOST, DB_USER, DB_PASSWORD, DB_NAME in .env
+    → Try connecting with same credentials in MySQL Workbench
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  IMPORTANT CONCEPT: require() is CACHED in Node.js
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  When you do require("./config/db") in multiple files, Node.js
+  does NOT create multiple pools. It creates the pool ONCE (the first
+  time require is called), and returns the SAME object every time.
+
+  This is called "module caching" — it's a Node.js feature.
+  It means we always share ONE pool across the whole app. 
+
+  server.js:           const pool = require("./config/db")  ─┐
+  taskController.js:   const pool = require("../config/db") ─┼─ all get the SAME pool
+  authController.js:   const pool = require("../config/db") ─┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CURRENT FOLDER STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  crud/
+  ├── config/
+  │   └── db.js            ← NEW: MySQL connection pool
+  ├── database/
+  │   └── schema.sql       ← SQL schema (Stage 3)
+  ├── notes/
+  │   ├── stage_01_complete_notes.txt
+  │   ├── stage_02_http_and_routes.txt
+  │   ├── stage_03_mysql_database.txt
+  │   └── stage_04_mysql_connection.txt  ← this file
+  ├── node_modules/
+  ├── .env
+  ├── .gitignore
+  ├── package.json
+  └── server.js            ← Updated: imports pool, /db-test route
+
+════════════════════════════════════════════════════════════════════
+  ✏️  YOUR TASK — Try This Yourself!
+════════════════════════════════════════════════════════════════════
+
+  TASK 1: Verify the connection
+    Run: npm run dev
+    Check that terminal shows: "✅ MySQL connected successfully!"
+    Test in Postman: GET http://localhost:3000/db-test
+    Confirm you see your users and tasks from schema.sql
+
+  TASK 2: Add a new query to /db-test
+    Add a 6th query inside the /db-test handler that fetches
+    only tasks with status = 'pending':
+
+      const [pendingTasks] = await pool.query(
+        "SELECT id, title, priority FROM tasks WHERE status = ?",
+        ["pending"]
+      );
+
+    Add it to the response:
+      pending_tasks: pendingTasks
+
+    Note: We use "?" as a placeholder, not string concatenation!
+    This prevents SQL injection attacks.
+    The second argument ["pending"] fills in the "?" safely.
+
+  TASK 3: Write the query manually in MySQL Workbench
+    Open MySQL Workbench and run:
+      USE task_manager_db;
+      SELECT id, title, priority FROM tasks WHERE status = 'pending';
+    Compare the result with what your API returns. They should match!
+
+════════════════════════════════════════════════════════════════════
+  WHAT'S NEXT — STAGE 5
+════════════════════════════════════════════════════════════════════
+
+  In Stage 5 we will:
+    - Replace the in-memory task array with REAL MySQL queries
+    - Write proper SQL INSERT, SELECT, UPDATE, DELETE from Node.js
+    - Handle edge cases (task not found, DB errors)
+    - Learn about parameterized queries (SQL injection prevention)
+    - Test all CRUD operations with Postman against a real database
+
+  After Stage 5, data PERSISTS — restart the server, tasks are still there!
+
+════════════════════════════════════════════════════════════════════

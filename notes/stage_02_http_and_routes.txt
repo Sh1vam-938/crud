@@ -1,0 +1,514 @@
+════════════════════════════════════════════════════════════════════
+  STAGE 2 — HTTP Methods & Creating Routes
+  What We Built, Why, How It Works
+  Task Manager REST API — Learning Journal
+════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS HTTP?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  HTTP = HyperText Transfer Protocol
+
+  It is the language that browsers and servers use to communicate.
+  Every time you visit a website, your browser sends an HTTP request
+  and the server sends back an HTTP response.
+
+  Think of HTTP like a conversation:
+    Client (Postman) says:  "GET /tasks"
+    Server (Express) says:  "200 OK, here are the tasks: [...]"
+
+  HTTP is STATELESS — each request is completely independent.
+  The server does NOT remember previous requests.
+  (This is why we need JWT tokens for authentication later!)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HTTP REQUEST STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Every HTTP request has these parts:
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │  POST /tasks HTTP/1.1                 ← Method + Path       │
+  │  Host: localhost:3000                 ← Who to send to      │
+  │  Content-Type: application/json       ← What format is body │
+  │  Authorization: Bearer eyJ...         ← Auth token (later)  │
+  │                                       ← Blank line          │
+  │  { "title": "Buy milk" }              ← Body (the data)     │
+  └─────────────────────────────────────────────────────────────┘
+
+  In Express, you access these as:
+    req.method     → "POST"
+    req.url        → "/tasks"
+    req.headers    → { "content-type": "application/json", ... }
+    req.body       → { title: "Buy milk" }  (parsed by express.json())
+    req.params     → { id: "1" }           (from URL like /tasks/:id)
+    req.query      → { status: "pending" } (from URL like /tasks?status=pending)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HTTP RESPONSE STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │  HTTP/1.1 201 Created                 ← Status Line        │
+  │  Content-Type: application/json       ← Response header    │
+  │                                       ← Blank line         │
+  │  { "success": true, "data": {...} }   ← Response body      │
+  └─────────────────────────────────────────────────────────────┘
+
+  In Express, you build responses using:
+    res.status(201)        → set the status code
+    res.json({ ... })      → send JSON body (sets Content-Type automatically)
+
+  These can be chained:
+    res.status(201).json({ success: true })
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  THE 4 HTTP METHODS — CRUD MAPPING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  REST APIs use HTTP methods to express INTENT.
+  There is a standard mapping called CRUD:
+
+  HTTP Method  │ CRUD Operation │ What it does            │ Has Body?
+  ─────────────┼────────────────┼─────────────────────────┼──────────
+  GET          │ READ           │ Fetch/retrieve data      │ No
+  POST         │ CREATE         │ Create a new resource    │ Yes
+  PUT          │ UPDATE         │ Update/replace resource  │ Yes
+  DELETE       │ DELETE         │ Remove a resource        │ No
+  PATCH        │ UPDATE (part)  │ Update specific fields   │ Yes
+  ─────────────┴────────────────┴─────────────────────────┴──────────
+
+  GET is "safe" — it should NEVER change any data.
+  GET is also "idempotent" — calling it 10 times = same result as 1 time.
+  DELETE is "idempotent" too — deleting twice = still deleted.
+  POST is NOT idempotent — posting twice creates TWO records.
+
+  Real World Example:
+    GET    /tasks        → Show me all my tasks         (like reading a list)
+    GET    /tasks/5      → Show me task #5              (reading one item)
+    POST   /tasks        → Add a new task               (writing a new item)
+    PUT    /tasks/5      → Change task #5 completely    (editing an item)
+    DELETE /tasks/5      → Remove task #5               (crossing off an item)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS A REST API?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  REST = Representational State Transfer
+
+  It is a set of RULES / CONVENTIONS for designing APIs.
+  An API built following these rules is called a "REST API".
+
+  Key REST rules:
+    1. Use HTTP methods correctly (GET=read, POST=create, etc.)
+    2. Use nouns in URLs, not verbs:
+         ✅ GET /tasks         (noun)
+         ❌ GET /getTasks      (verb — don't do this!)
+    3. Use plural nouns:
+         ✅ /tasks
+         ❌ /task
+    4. Resources can be nested:
+         GET /users/3/tasks   → Get tasks belonging to user 3
+    5. Stateless — no session stored on server (use tokens)
+    6. Return proper HTTP status codes
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  THREE WAYS TO SEND DATA IN A REQUEST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  METHOD 1: URL Parameters (req.params)
+  ─────────────────────────────────────
+  Used for: identifying a specific resource
+  Defined with ":name" in the route pattern
+
+  Route:   app.get("/tasks/:id", ...)
+  URL:     GET /tasks/5
+  Result:  req.params = { id: "5" }
+
+  ⚠️  URL params are always STRINGS. Use parseInt() for numbers:
+    const id = parseInt(req.params.id);
+
+  ─────────────────────────────────────────────────────────────────
+
+  METHOD 2: Query Strings (req.query)
+  ─────────────────────────────────────
+  Used for: filtering, sorting, pagination
+  Added to URL after a "?" character
+
+  Route:   app.get("/tasks", ...)
+  URL:     GET /tasks?status=pending&priority=high
+  Result:  req.query = { status: "pending", priority: "high" }
+
+  Multiple filters:
+    GET /tasks?status=pending&priority=high
+    → req.query = { status: "pending", priority: "high" }
+
+  ─────────────────────────────────────────────────────────────────
+
+  METHOD 3: Request Body (req.body)
+  ─────────────────────────────────
+  Used for: sending data to CREATE or UPDATE something
+  Data is sent in the body of the request (not in the URL)
+  Only works with POST, PUT, PATCH (not GET or DELETE)
+
+  Route:   app.post("/tasks", ...)
+  Body:    { "title": "Buy milk", "priority": "high" }
+  Result:  req.body = { title: "Buy milk", priority: "high" }
+
+  WHY body and not URL?
+    URLs have a length limit (~2000 characters).
+    Body can hold unlimited data.
+    Passwords and sensitive info should NEVER go in URLs
+    (they appear in browser history, server logs, etc.)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HTTP STATUS CODES — THE COMPLETE LIST YOU NEED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Codes are grouped by their first digit:
+
+  2xx — SUCCESS
+  ──────────────
+  200 OK            → Request succeeded. Body contains the result.
+  201 Created       → A new resource was created (after POST).
+  204 No Content    → Success, but nothing to send back (after DELETE).
+
+  3xx — REDIRECTS (rarely used in APIs)
+  ──────────────────────────────────────
+  301 Moved Permanently  → URL has changed permanently
+  302 Found              → Temporary redirect
+
+  4xx — CLIENT ERRORS (the client made a mistake)
+  ─────────────────────────────────────────────────
+  400 Bad Request      → Invalid data (missing fields, wrong format)
+  401 Unauthorized     → Not authenticated (no token / bad token)
+  403 Forbidden        → Authenticated but not allowed (wrong user)
+  404 Not Found        → Resource doesn't exist
+  422 Unprocessable    → Validation failed (field is wrong type/format)
+
+  5xx — SERVER ERRORS (WE made a mistake / crash)
+  ─────────────────────────────────────────────────
+  500 Internal Server Error → Unhandled crash / bug in our code
+  503 Service Unavailable   → Server is down or overloaded
+
+  QUICK RULE:
+    If it starts with 2 → success
+    If it starts with 4 → client's fault
+    If it starts with 5 → our fault (bug!)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CODE WALKTHROUGH — EVERY NEW PIECE IN server.js
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  let tasks = [ { id: 1, title: "...", ... }, ... ]
+  ──────────────────────────────────────────────────
+  This is our "fake database" — a JavaScript array in memory.
+  "let" means we can reassign it. (We'll add to it with .push())
+  Each task object has: id, title, status, priority.
+  When you restart the server, this array resets. (Stage 4 fixes this)
+
+  ─────────────────────────────────────────────────────────────────
+
+  let nextId = 5
+  ───────────────
+  Simple counter to simulate MySQL's AUTO_INCREMENT.
+  Each time we create a task, we use nextId++ and increment it.
+  nextId++ means "use the current value, then add 1".
+  So first new task gets id=5, next gets id=6, etc.
+
+  ─────────────────────────────────────────────────────────────────
+
+  const { status, priority } = req.query
+  ────────────────────────────────────────
+  This is called "destructuring". It's shorthand for:
+    const status = req.query.status;
+    const priority = req.query.priority;
+
+  If the URL is /tasks?status=pending, then:
+    status   = "pending"
+    priority = undefined (wasn't in the URL)
+
+  ─────────────────────────────────────────────────────────────────
+
+  result = result.filter((task) => task.status === status)
+  ──────────────────────────────────────────────────────────
+  .filter() creates a NEW array with only items that pass the test.
+  The test is: (task) => task.status === status
+  It goes through every task and keeps only the ones where
+  task.status matches the status we're filtering by.
+
+  Example:
+    tasks = [
+      { id: 1, status: "completed" },
+      { id: 2, status: "pending" },
+      { id: 3, status: "pending" }
+    ]
+    filter by status = "pending":
+    result = [{ id: 2, ... }, { id: 3, ... }]
+
+  ─────────────────────────────────────────────────────────────────
+
+  const task = tasks.find((t) => t.id === id)
+  ─────────────────────────────────────────────
+  .find() returns the FIRST element that passes the test.
+  Returns undefined if nothing matches.
+  We use this to get ONE specific task by its ID.
+
+  ─────────────────────────────────────────────────────────────────
+
+  return res.status(404).json({ ... })
+  ──────────────────────────────────────
+  "return" stops the function from running further.
+  Without "return", Express would try to send ANOTHER response after
+  this one, causing an error: "Cannot set headers after they are sent".
+  Always use "return" before sending an error response!
+
+  ─────────────────────────────────────────────────────────────────
+
+  tasks[taskIndex] = { ...tasks[taskIndex], title, status, priority }
+  ────────────────────────────────────────────────────────────────────
+  The spread operator {...obj} copies all properties of obj.
+  { ...tasks[taskIndex] } = make a copy of the existing task
+  Then we override specific fields (title, status, priority).
+
+  Example:
+    existing task = { id: 1, title: "Old", status: "pending", priority: "high" }
+    body sent     = { title: "New", status: "completed" }
+
+    result = {
+      id: 1,           ← kept from existing (not in body)
+      title: "New",    ← overwritten from body
+      status: "completed", ← overwritten from body
+      priority: "high" ← kept from existing (not in body)
+    }
+
+  ─────────────────────────────────────────────────────────────────
+
+  const deletedTask = tasks.splice(taskIndex, 1)[0]
+  ──────────────────────────────────────────────────
+  .splice(index, count) removes "count" items starting at "index".
+  It returns an ARRAY of the removed items.
+  So tasks.splice(2, 1) removes 1 item at index 2 and returns [removedItem]
+  We add [0] to get the item itself (not the array).
+
+  ─────────────────────────────────────────────────────────────────
+
+  app.use((req, res) => { res.status(404)... })
+  ──────────────────────────────────────────────
+  This is the "catch-all" or "fallback" route.
+  It uses app.use() instead of app.get() — it matches ALL methods.
+  It MUST be the LAST route in the file.
+  Express tries routes in order. If no route matched, this runs.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW A REQUEST FLOWS — STEP BY STEP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Let's trace: POST http://localhost:3000/tasks
+               Body: { "title": "Study SQL" }
+
+  Step 1: Postman sends HTTP request to port 3000
+  Step 2: app.listen() receives it
+  Step 3: express.json() middleware runs — parses body
+          req.body = { title: "Study SQL" }
+  Step 4: Express looks at method=POST and path=/tasks
+  Step 5: Tries app.get("/") → NO (method is POST, not GET)
+  Step 6: Tries app.get("/about") → NO
+  Step 7: Tries app.get("/health") → NO
+  Step 8: Tries app.get("/tasks") → NO (method is POST, not GET)
+  Step 9: Tries app.get("/tasks/:id") → NO
+  Step 10: Tries app.post("/tasks") → YES! ✅
+  Step 11: Handler runs:
+            - reads req.body.title = "Study SQL"
+            - creates newTask = { id: 5, title: "Study SQL", ... }
+            - tasks.push(newTask)
+  Step 12: res.status(201).json({ success: true, data: newTask })
+  Step 13: Express sends HTTP response back to Postman
+  Step 14: Postman shows: 201 Created + JSON body
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  COMPLETE POSTMAN TESTING GUIDE FOR STAGE 2
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Make sure server is running: npm run dev
+
+  TEST 1: Get all tasks
+  ──────────────────────
+  Method: GET
+  URL:    http://localhost:3000/tasks
+  Body:   (none)
+  Expected: 200 OK, list of 4 tasks
+
+  TEST 2: Filter tasks by status
+  ───────────────────────────────
+  Method: GET
+  URL:    http://localhost:3000/tasks?status=pending
+  Body:   (none)
+  Expected: 200 OK, only pending tasks (2 tasks)
+
+  TEST 3: Filter by priority
+  ───────────────────────────
+  Method: GET
+  URL:    http://localhost:3000/tasks?priority=high
+  Body:   (none)
+  Expected: only high priority tasks
+
+  TEST 4: Get one task
+  ─────────────────────
+  Method: GET
+  URL:    http://localhost:3000/tasks/1
+  Body:   (none)
+  Expected: 200 OK, task with id=1
+
+  TEST 5: Get non-existent task
+  ──────────────────────────────
+  Method: GET
+  URL:    http://localhost:3000/tasks/999
+  Body:   (none)
+  Expected: 404 Not Found
+
+  TEST 6: Create a new task
+  ──────────────────────────
+  Method: POST
+  URL:    http://localhost:3000/tasks
+  Body → Select "raw" → Select "JSON" from dropdown:
+    {
+      "title": "Study SQL for Stage 3",
+      "priority": "high"
+    }
+  Expected: 201 Created, new task with id=5
+
+  TEST 7: Create task without title (should fail)
+  ─────────────────────────────────────────────────
+  Method: POST
+  URL:    http://localhost:3000/tasks
+  Body:   { "priority": "high" }
+  Expected: 400 Bad Request, "Title is required"
+
+  TEST 8: Update a task
+  ──────────────────────
+  Method: PUT
+  URL:    http://localhost:3000/tasks/1
+  Body:   { "status": "completed", "title": "Learn Node.js ✅" }
+  Expected: 200 OK, updated task
+
+  TEST 9: Delete a task
+  ──────────────────────
+  Method: DELETE
+  URL:    http://localhost:3000/tasks/4
+  Body:   (none)
+  Expected: 200 OK, confirmation with deleted task
+
+  TEST 10: Hit unknown route
+  ───────────────────────────
+  Method: GET
+  URL:    http://localhost:3000/anything-random
+  Expected: 404, "Route not found"
+
+  HOW TO SET BODY IN POSTMAN:
+  ────────────────────────────
+  1. Click the "Body" tab (below the URL bar)
+  2. Select "raw"
+  3. On the right dropdown, change "Text" to "JSON"
+  4. Type your JSON in the text area:
+       {
+         "title": "My task",
+         "priority": "high"
+       }
+  5. Click Send
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS MIDDLEWARE? (The Most Important Express Concept)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Middleware = a function that sits BETWEEN the request and response.
+  It runs on EVERY request (or specific ones) before your route handler.
+
+  Middleware has access to: req, res, and a special function "next".
+  It can:
+    - Read/modify req
+    - Read/modify res
+    - End the request (send a response)
+    - Call next() to pass to the next middleware/route
+
+  Flow:
+    Request → Middleware 1 → Middleware 2 → Route Handler → Response
+
+  Example of what middleware looks like:
+    const myMiddleware = (req, res, next) => {
+      console.log(`Request: ${req.method} ${req.url}`);
+      next(); // pass to next step
+    };
+    app.use(myMiddleware);
+
+  express.json() is middleware. It reads the body, parses it, sets
+  req.body, then calls next() to continue to the route handler.
+
+  In Stage 7 and 10, we will write our OWN middleware:
+    - Error handling middleware (catches crashes)
+    - Auth middleware (verifies JWT tokens)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT WE BUILT IN STAGE 2 — SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✅ GET    /tasks              → returns all tasks (with optional filtering)
+  ✅ GET    /tasks?status=xxx   → filter by status using query string
+  ✅ GET    /tasks/:id          → get one task using URL parameter
+  ✅ POST   /tasks              → create a task using request body
+  ✅ PUT    /tasks/:id          → update a task using param + body
+  ✅ DELETE /tasks/:id          → delete a task using param
+  ✅ 404    catch-all           → handles unknown routes
+
+  Data storage: In-memory array (resets on restart)
+  Next stage:   Real MySQL database (permanent storage)
+
+════════════════════════════════════════════════════════════════════
+  ✏️  YOUR TASK — Try This Yourself!
+════════════════════════════════════════════════════════════════════
+
+  TASK 1 (Easy):
+    Add a GET /tasks/count route that returns:
+    {
+      "total": 4,
+      "pending": 2,
+      "completed": 2
+    }
+    Hint: tasks.filter(t => t.status === "pending").length
+
+  TASK 2 (Medium):
+    Add a PATCH /tasks/:id/complete route.
+    PATCH is like PUT but for partial updates.
+    This route should ONLY set status to "completed".
+    No body needed — just the URL.
+    After calling:  PATCH /tasks/3
+    Task 3's status should become "completed"
+
+  TASK 3 (Hard):
+    Add query string sorting to GET /tasks:
+    GET /tasks?sort=priority   → sort by priority
+    GET /tasks?sort=status     → sort by status
+    Hint: use result.sort((a, b) => a[sort] > b[sort] ? 1 : -1)
+
+  TEST ALL WITH POSTMAN before moving to Stage 3!
+
+════════════════════════════════════════════════════════════════════
+  WHAT'S NEXT — STAGE 3
+════════════════════════════════════════════════════════════════════
+
+  In Stage 3 we will:
+    - Open MySQL Workbench
+    - Create a database called task_manager_db
+    - Create two tables: users and tasks
+    - Understand SQL: CREATE, INSERT, SELECT, UPDATE, DELETE
+    - Learn about primary keys, foreign keys, data types
+
+  The problem with Stage 2's approach:
+    - Data is lost every time you restart the server
+    - You can't have millions of tasks in an array
+    - No way to search efficiently
+    - Data is not shared between different computers/users
+  MySQL fixes ALL of this!
+
+════════════════════════════════════════════════════════════════════

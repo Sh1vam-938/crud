@@ -1,0 +1,303 @@
+════════════════════════════════════════════════════════════════════
+  STAGE 11 — Security Hardening
+  Helmet, CORS, Rate Limiting
+  Task Manager REST API — Learning Journal
+════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT WE BUILT IN STAGE 11
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Packages added (run: npm install cors express-rate-limit helmet):
+    helmet            ← sets secure HTTP response headers
+    cors              ← controls who can call your API
+    express-rate-limit← limits request rate per IP address
+
+  Files created:
+    middleware/securityMiddleware.js  ← authLimiter + apiLimiter
+
+  Files updated:
+    server.js         ← helmet, cors, apiLimiter applied globally
+    routes/authRoutes.js ← authLimiter applied to login/register
+    package.json      ← 3 new dependencies listed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECURITY LAYER 1: HELMET
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  What is Helmet?
+  ────────────────
+  Helmet is an Express middleware that automatically sets HTTP
+  security headers on every response. These headers tell browsers
+  how to handle your content safely.
+
+  What headers does helmet set?
+  ──────────────────────────────
+
+  1. X-Content-Type-Options: nosniff
+     PROBLEM: Browser tries to guess the content type if server
+              doesn't declare it. A malicious .txt file could be
+              executed as JavaScript if the browser "sniffs" it.
+     FIX: Browser uses ONLY the declared Content-Type. No guessing.
+
+  2. X-Frame-Options: SAMEORIGIN
+     PROBLEM: Clickjacking — attacker embeds your site in an
+              invisible iframe. User thinks they click a button on
+              the attacker's site but actually clicks YOUR button.
+     FIX: Your pages can only be embedded by frames from the same domain.
+
+  3. Strict-Transport-Security (HSTS)
+     PROBLEM: If user types "example.com" (no https://), browser
+              might use HTTP (unencrypted) first.
+     FIX: Once visited via HTTPS, browser always uses HTTPS for
+          the next year. HTTP requests are upgraded automatically.
+
+  4. Content-Security-Policy (CSP)
+     PROBLEM: XSS (Cross-Site Scripting) — attacker injects malicious
+              script into your page that steals user data.
+     FIX: CSP restricts which scripts/styles/resources the browser loads.
+          Only whitelisted sources are allowed to run.
+
+  5. Cross-Origin-Opener-Policy
+     PROBLEM: Tab-napping — malicious site opened by your link can
+              access and manipulate your page via window.opener.
+     FIX: Isolated browsing context. New tabs can't reach back.
+
+  Usage:
+    app.use(helmet());  ← just this one line! All headers set automatically.
+
+  You can customize helmet if needed:
+    app.use(helmet({ contentSecurityPolicy: false })); ← disable CSP if it breaks things
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECURITY LAYER 2: CORS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  What is CORS?
+  ─────────────
+  CORS = Cross-Origin Resource Sharing.
+
+  "Origin" = protocol + domain + port.
+    http://localhost:3000  is one origin.
+    http://localhost:5173  is a DIFFERENT origin (different port).
+    https://myapp.com      is a different origin (different domain).
+
+  THE BROWSER'S SAME-ORIGIN POLICY:
+  ────────────────────────────────────
+  By default, browsers block ALL HTTP requests from one origin
+  to another. This is a security feature called Same-Origin Policy.
+
+  Example without CORS:
+    Your React app runs on:    http://localhost:5173
+    Your API runs on:          http://localhost:3000
+    React does: fetch("http://localhost:3000/api/tasks")
+    Browser blocks it!         "Access to fetch at localhost:3000
+                               from origin localhost:5173 has been
+                               blocked by CORS policy."
+
+  This is a browser security feature — Postman is not a browser,
+  so Postman doesn't check CORS. That's why Postman works fine!
+
+  HOW CORS WORKS:
+  ────────────────
+  Your server adds these headers to responses:
+    Access-Control-Allow-Origin: *          ← allow all origins
+    Access-Control-Allow-Methods: GET, POST ← allowed HTTP methods
+    Access-Control-Allow-Headers: Authorization, Content-Type
+
+  Browser sees these headers → "The server allows my origin" → allows the request.
+
+  OUR CURRENT SETUP:
+    origin: "*"  →  ALLOW ALL ORIGINS
+  This is fine for development. Do NOT use in production!
+
+  PRODUCTION SETUP (restrict to your frontend):
+    app.use(cors({ origin: "https://yourfrontend.com" }));
+  Only requests from https://yourfrontend.com are allowed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECURITY LAYER 3: RATE LIMITING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  What is Rate Limiting?
+  ───────────────────────
+  Rate limiting restricts how many requests one IP address can
+  make in a time window.
+
+  Without rate limiting:
+    Attacker writes a script: for(;;) { login("alice@x.com", tryPassword()); }
+    → Tries millions of passwords per minute
+    → Eventually cracks the account
+    → Also: floods your server, making it slow for everyone (DDoS)
+
+  With rate limiting (our authLimiter):
+    IP allowed: 10 requests per 15 minutes
+    Request 11:  429 Too Many Requests
+    Attacker tries 10 passwords, blocked for 15 minutes
+    At that rate: ~960 tries per day, not millions
+    Account is safe
+
+  WHY TWO LIMITERS?
+  ──────────────────
+  authLimiter (10 req / 15 min):
+    Applied to: POST /api/auth/login, POST /api/auth/register
+    Why stricter? Brute force attacks target login endpoints.
+    10 attempts is plenty for a real user (they know their password).
+
+  apiLimiter (100 req / 15 min):
+    Applied to: ALL /api/* routes
+    Why more lenient? Normal app usage involves many requests.
+    An app might fetch tasks, create tasks, update them — 100/15min is fair.
+
+  RESPONSE HEADERS (standardHeaders: true):
+    When rate limit is active, responses include:
+      RateLimit-Limit:     10        ← max allowed
+      RateLimit-Remaining: 7         ← how many left
+      RateLimit-Reset:     1705317600← when the window resets (Unix timestamp)
+
+  STATUS CODE:
+    429 Too Many Requests — the standard HTTP code for rate limiting.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  MIDDLEWARE ORDER IN server.js — WHY IT MATTERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Order in our server.js:
+    1. helmet()              ← security headers (first!)
+    2. cors(corsOptions)     ← allow cross-origin requests
+    3. apiLimiter            ← rate limiting before any processing
+    4. express.json()        ← parse request body
+    5. routes                ← handle requests
+    6. notFound              ← 404 handler
+    7. errorHandler          ← global error handler (last!)
+
+  Why security first?
+    If an attacker sends 1000 requests/second, you want rate limiting
+    to kick in BEFORE your DB queries run. If routes ran first,
+    the DB would be hammered before rate limiting stopped it.
+
+  Why express.json() after cors/helmet?
+    CORS and Helmet only look at headers — they don't need the body.
+    express.json() parses the body (takes more CPU) — only do it
+    after security checks pass.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  COMPLETE SECURITY PICTURE — ALL LAYERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Our API is now protected by:
+
+  1. Helmet           → Secure HTTP headers (XSS, clickjacking, etc.)
+  2. CORS             → Only allowed origins can call the API
+  3. Rate Limiting    → Brute force and DDoS protection
+  4. JWT Auth         → Routes protected — must be logged in
+  5. bcrypt           → Passwords hashed — safe even if DB is stolen
+  6. Parameterized    → SQL injection impossible
+     Queries
+  7. Input Validation → Bad data rejected before reaching DB
+  8. User Scoping     → Each user only sees their own data (IDOR prevention)
+  9. Error Handling   → Stack traces hidden in production
+
+  This is a professional-grade security stack. Companies use exactly
+  these same tools and patterns in production APIs.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  POSTMAN TESTING — STAGE 11
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  SETUP: npm install cors express-rate-limit helmet
+         Then: npm run dev
+
+  TEST 1: Verify helmet headers
+    GET http://localhost:3000/api/tasks  (with valid token)
+    In Postman, click the response Headers tab.
+    Look for:
+      x-content-type-options: nosniff       ← helmet ✅
+      x-frame-options: SAMEORIGIN           ← helmet ✅
+      cross-origin-opener-policy: ...       ← helmet ✅
+
+  TEST 2: Test rate limiter (auth limiter)
+    Send POST /api/auth/login 11 times in quick succession
+    (wrong credentials each time is fine — just send 11 requests)
+    Request 11 should return:
+      Status: 429 Too Many Requests
+      Body: { "message": "Too many attempts from this IP..." }
+    Look in the response headers for:
+      RateLimit-Limit: 10
+      RateLimit-Remaining: 0
+
+  TEST 3: Check CORS headers
+    GET http://localhost:3000/
+    Look for in response headers:
+      access-control-allow-origin: *       ← cors ✅
+
+  TEST 4: Verify everything still works normally
+    Login → get token → GET /api/tasks with token
+    Should return 200 as before (security doesn't break normal flow).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CURRENT FOLDER STRUCTURE — COMPLETE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  crud/
+  ├── config/
+  │   └── db.js
+  ├── controllers/
+  │   ├── authController.js        ← register + login
+  │   └── taskController.js        ← CRUD scoped to req.user.id
+  ├── database/
+  │   └── schema.sql
+  ├── middleware/
+  │   ├── authMiddleware.js        ← JWT verification (protect)
+  │   ├── errorMiddleware.js       ← notFound + errorHandler
+  │   ├── securityMiddleware.js    ← NEW: authLimiter + apiLimiter
+  │   └── validate.js              ← handleValidationErrors
+  ├── routes/
+  │   ├── authRoutes.js            ← authLimiter on login/register
+  │   └── taskRoutes.js            ← protect on all routes
+  ├── notes/
+  ├── .env
+  ├── package.json                 ← +cors +express-rate-limit +helmet
+  └── server.js                    ← helmet + cors + apiLimiter
+
+════════════════════════════════════════════════════════════════════
+  ✏️  YOUR TASK — Try This Yourself!
+════════════════════════════════════════════════════════════════════
+
+  TASK 1: Verify helmet headers in Postman
+    Make any request. Click "Headers" in the response.
+    Find at least 3 security headers added by helmet.
+    Write down what each one does (check the notes above).
+
+  TASK 2: Trigger the rate limiter
+    Send POST /api/auth/login 11+ times rapidly in Postman.
+    See the 429 response on the 11th request.
+    Check the RateLimit-* headers in the response.
+
+  TASK 3: Add CORS_ORIGIN to your .env
+    In .env, add:   CORS_ORIGIN=http://localhost:5173
+    In server.js, origin is already reading: process.env.CORS_ORIGIN || "*"
+    Restart server. Now only localhost:5173 would be allowed by browsers.
+    (Postman still works — it doesn't enforce CORS.)
+
+════════════════════════════════════════════════════════════════════
+  WHAT'S NEXT — STAGE 12
+════════════════════════════════════════════════════════════════════
+
+  Stage 12: Complete README.md
+    - Project overview
+    - Installation steps
+    - All API endpoints documented
+    - Example requests and responses
+    - Environment variables guide
+    - How to test with Postman
+
+  Stage 13: Postman Collection Export
+    - Export a ready-to-use Postman collection
+    - All routes pre-configured with correct headers and body examples
+
+  Stage 14: Final Review and What to Build Next
+    - Review of all concepts learned
+    - Common next steps (deploy to Render/Railway, add frontend, etc.)
+
+════════════════════════════════════════════════════════════════════

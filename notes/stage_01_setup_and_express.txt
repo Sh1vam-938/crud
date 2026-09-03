@@ -1,0 +1,334 @@
+════════════════════════════════════════════════════════════════════
+  STAGE 1 — Initialize Node.js Project & Basic Express Server
+  Task Manager REST API — Learning Notes
+════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS NODE.JS?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Before Node.js, JavaScript could ONLY run inside a browser (Chrome,
+  Firefox, etc.). Developers used Java, PHP, or Python to build servers.
+
+  In 2009, Ryan Dahl created Node.js — he took the V8 JavaScript engine
+  (the same engine Chrome uses) and ran it OUTSIDE the browser.
+
+  Now JavaScript can:
+    ✅ Run on a server
+    ✅ Access the file system
+    ✅ Open network connections
+    ✅ Connect to databases
+
+  WHY NODE.JS?
+  ─────────────
+  Advantages:
+    + Same language (JS) for both frontend and backend
+    + Very fast for I/O-heavy tasks (reading files, database queries)
+    + Huge ecosystem — npm has 2+ million packages
+    + Non-blocking (handles many requests simultaneously)
+
+  Disadvantages:
+    - Not great for CPU-heavy tasks (image processing, ML)
+    - Callback/async patterns can be confusing for beginners
+    - Single-threaded (but handles concurrency via event loop)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS EXPRESS?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Node.js has a built-in "http" module to create servers. But it's
+  very low-level and verbose. Here is what a simple server looks like
+  without Express:
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │  // WITHOUT Express (raw Node.js):                           │
+  │  const http = require('http');                               │
+  │  const server = http.createServer((req, res) => {           │
+  │    if (req.url === '/' && req.method === 'GET') {           │
+  │      res.writeHead(200, {'Content-Type': 'application/json'}│
+  │      res.end(JSON.stringify({ message: 'Hello!' }));        │
+  │    }                                                         │
+  │  });                                                         │
+  │  server.listen(3000);                                        │
+  └──────────────────────────────────────────────────────────────┘
+
+  Now here is the same thing WITH Express:
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │  // WITH Express:                                            │
+  │  const express = require('express');                         │
+  │  const app = express();                                      │
+  │  app.get('/', (req, res) => {                               │
+  │    res.json({ message: 'Hello!' });                         │
+  │  });                                                         │
+  │  app.listen(3000);                                           │
+  └──────────────────────────────────────────────────────────────┘
+
+  Express abstracts all the verbose low-level code and gives you a
+  clean, minimal, and flexible API.
+
+  Express Advantages:
+    + Minimal and unopinionated — you decide the structure
+    + Middleware system — plug in functionality easily
+    + Routing — organize URLs cleanly
+    + Huge community and lots of compatible packages
+
+  Express Disadvantages:
+    - Not opinionated (you have to make structure decisions yourself)
+    - Can become messy if not organized well (we'll fix this!)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PACKAGES WE INSTALLED AND WHY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Package          | Why we use it
+  ─────────────────┼──────────────────────────────────────────────────
+  express          | Web framework — handles routing, middleware, etc.
+  dotenv           | Loads .env file into process.env (keeps secrets safe)
+  mysql2           | MySQL database driver — lets Node.js talk to MySQL
+  bcryptjs         | Password hashing — never store plain-text passwords
+  jsonwebtoken     | Creates and verifies JWT tokens for authentication
+  express-validator| Validates and sanitizes user input (prevents bad data)
+  nodemon          | Dev tool — restarts server automatically on file save
+  ─────────────────┴──────────────────────────────────────────────────
+
+  NOTE: nodemon is a "devDependency" — it's only used during development,
+  not in production. That's why it goes in "devDependencies" in package.json
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  FILES CREATED IN STAGE 1
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  📄 package.json
+  ───────────────
+  The "blueprint" of your project. Every Node.js project has one.
+  It records:
+    - Project name, version, description
+    - All packages your project depends on (dependencies)
+    - Scripts (shortcuts for running commands)
+
+  When you share your project or clone it from GitHub, someone just
+  runs "npm install" and npm reads package.json to install everything.
+
+  📄 server.js
+  ─────────────
+  The entry point — the first file Node.js runs.
+  It:
+    1. Loads environment variables (dotenv)
+    2. Creates the Express app
+    3. Registers middleware (JSON parser)
+    4. Defines routes
+    5. Starts listening on a PORT
+
+  📄 .env
+  ────────
+  Stores configuration that changes per environment.
+  Examples: DB password, JWT secret, PORT number.
+  NEVER commit this to Git!
+
+  📄 .gitignore
+  ─────────────
+  Tells Git which files to ignore.
+  We ignore:
+    - node_modules/ (100k+ files, installed via npm install)
+    - .env (contains secrets!)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CODE WALKTHROUGH — server.js LINE BY LINE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  require("dotenv").config();
+  ───────────────────────────
+  "require" is Node.js's way of importing a module (like "import" in
+  modern JS). dotenv.config() reads your .env file and puts all the
+  key=value pairs into process.env.
+
+  After this line, process.env.PORT = "3000", process.env.DB_HOST =
+  "localhost", etc.
+
+  ─────────────────────────────────────────────────────────────────
+
+  const express = require("express");
+  const app = express();
+  ─────────────────────────────────────
+  Line 1: Import the express package.
+  Line 2: Call express() to CREATE an application instance.
+  "app" is now your server. All routes and middleware attach to "app".
+
+  ─────────────────────────────────────────────────────────────────
+
+  app.use(express.json());
+  ─────────────────────────
+  app.use() registers MIDDLEWARE.
+  Middleware = a function that runs on EVERY request before your route
+  handler runs.
+
+  express.json() is built into Express. It reads the request body
+  (the data sent by the client), parses it as JSON, and attaches it
+  to req.body.
+
+  WITHOUT this:  req.body would be undefined
+  WITH this:     req.body = { title: "Buy milk", ... }
+
+  ─────────────────────────────────────────────────────────────────
+
+  app.get("/", (req, res) => { ... });
+  ──────────────────────────────────────
+  app.get() = "Listen for GET requests at this URL"
+  "/"       = The URL path (root)
+  (req, res)= The callback function with two arguments:
+               req = Request object (what the client sent us)
+               res = Response object (what we send back)
+
+  res.json() sends a JSON response. It automatically sets the
+  Content-Type header to "application/json".
+
+  ─────────────────────────────────────────────────────────────────
+
+  app.listen(PORT, () => { ... });
+  ─────────────────────────────────
+  This opens a "socket" on port 3000.
+  A socket is like a door — once open, the server waits for
+  connections. When a connection comes in, it processes it and
+  sends a response.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW A REQUEST FLOWS THROUGH THE APP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Browser/Postman sends: GET http://localhost:3000/
+                              │
+                              ▼
+                    [ Network / TCP Layer ]
+                              │
+                              ▼
+                    [ app.listen() — Port 3000 ]
+                    (server receives the connection)
+                              │
+                              ▼
+                    [ Middleware: express.json() ]
+                    (parse the JSON body if any)
+                              │
+                              ▼
+                    [ Route Matching: GET "/" ]
+                    (Express checks all registered routes)
+                              │
+                              ▼
+                    [ Route Handler: (req, res) => {...} ]
+                    (your code runs here)
+                              │
+                              ▼
+                    [ res.json({ message: "..." }) ]
+                    (response sent back to client)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW TO RUN THE SERVER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Step 1: Open your terminal in the project folder (crud/)
+
+  Step 2: Install all packages
+          > npm install
+
+  Step 3: Update your .env file with your MySQL password
+
+  Step 4: Start the server (development mode with auto-restart)
+          > npm run dev
+          OR
+          > node server.js   (no auto-restart)
+
+  Step 5: Open your browser or Postman and visit:
+          http://localhost:3000/
+
+  You should see:
+  {
+    "message": "✅ Task Manager API is running!",
+    "version": "1.0.0",
+    "timestamp": "..."
+  }
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS npm?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  npm = Node Package Manager
+  It's like an "App Store" for JavaScript code.
+  When you run "npm install express", npm:
+    1. Looks up "express" in the npm registry (npmjs.com)
+    2. Downloads it to your node_modules/ folder
+    3. Adds it to package.json as a dependency
+
+  node_modules/ can contain 100k+ files — that's why we don't
+  commit it to Git. Anyone can regenerate it with "npm install".
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS package-lock.json?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  When you run "npm install", npm creates package-lock.json.
+  It records the EXACT version of every installed package (including
+  dependencies of dependencies). This ensures that everyone on the
+  team has the exact same versions installed.
+
+  DO commit package-lock.json to Git.
+  DO NOT commit node_modules/ to Git.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  UNDERSTANDING WHAT NODE_ENV MEANS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  NODE_ENV is a convention, not magic.
+  Developers set it to "development", "production", or "test" to
+  change app behavior:
+
+  development → Show detailed error messages, verbose logging
+  production  → Hide error details (security), optimize performance
+  test        → Use test database, no side effects
+
+════════════════════════════════════════════════════════════════════
+  ✏️  YOUR TASK — Try This Yourself!
+════════════════════════════════════════════════════════════════════
+
+  TASK: Add a new route to server.js
+
+  After the "/" route, add a new route that responds to:
+    GET /about
+
+  It should return:
+  {
+    "project": "Task Manager API",
+    "author": "Your Name",
+    "stage": 1,
+    "description": "A REST API for managing tasks"
+  }
+
+  BONUS: Add another route:
+    GET /health
+  That returns the server's uptime (process.uptime() gives seconds):
+  {
+    "status": "OK",
+    "uptime": 45.23
+  }
+
+  HOW TO TEST:
+  1. Run: npm run dev
+  2. Open Postman
+  3. New Request → GET → http://localhost:3000/about → Send
+  4. You should see the JSON response!
+
+  HINTS:
+  - Use app.get("/about", (req, res) => { ... })
+  - process.uptime() returns seconds since server started
+
+════════════════════════════════════════════════════════════════════
+  FOLDER STRUCTURE AFTER STAGE 1
+════════════════════════════════════════════════════════════════════
+
+  crud/
+  ├── .env             ← Secret config (DB password, JWT key, etc.)
+  ├── .gitignore       ← Files Git should ignore
+  ├── package.json     ← Project blueprint & dependencies
+  ├── server.js        ← Entry point — creates & starts Express server
+  └── node_modules/    ← Installed packages (after npm install)
+
+════════════════════════════════════════════════════════════════════

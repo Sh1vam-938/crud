@@ -1,0 +1,351 @@
+════════════════════════════════════════════════════════════════════
+  STAGE 10 — Auth Middleware & Protected Routes
+  What We Built, Why, How It Works
+  Task Manager REST API — Learning Journal
+════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT WE BUILT IN STAGE 10
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Files created:
+    middleware/authMiddleware.js    ← the "protect" function
+
+  Files updated:
+    routes/taskRoutes.js            ← protect added to every route
+    controllers/taskController.js   ← user_id=1 replaced with req.user.id
+                                      all queries scoped to logged-in user
+
+  What changed for users:
+    BEFORE: Anyone could GET/POST/DELETE tasks (no login required)
+    AFTER:  All task routes require a valid JWT token in the header
+
+  What changed for data:
+    BEFORE: All tasks were stored under user_id = 1 (hardcoded — Alice)
+    AFTER:  Tasks belong to whoever is actually logged in
+            Alice logs in → sees ONLY Alice's tasks
+            Charlie logs in → sees ONLY Charlie's tasks
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW THE protect MIDDLEWARE WORKS — STEP BY STEP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  CASE 1: No token provided
+  ──────────────────────────
+  Client: GET /api/tasks (no Authorization header)
+  protect:
+    req.headers.authorization = undefined
+    !authHeader → return 401 "Access denied. No token provided."
+  Controller: NEVER runs
+
+  CASE 2: Token is forged or corrupted
+  ──────────────────────────────────────
+  Client: GET /api/tasks
+  Header: Authorization: Bearer "fake_or_modified_token"
+  protect:
+    jwt.verify("fake_token", JWT_SECRET) → throws JsonWebTokenError
+    catch: return 401 "Invalid token."
+  Controller: NEVER runs
+
+  CASE 3: Token is expired
+  ─────────────────────────
+  Client: GET /api/tasks
+  Header: Authorization: Bearer "eyJ...valid_but_expired..."
+  protect:
+    jwt.verify() → throws TokenExpiredError
+    catch: return 401 "Token has expired. Please log in again."
+  Controller: NEVER runs
+
+  CASE 4: Valid token
+  ────────────────────
+  Client: GET /api/tasks
+  Header: Authorization: Bearer "eyJhbGciOiJIUzI1NiIs..."
+  protect:
+    jwt.verify() → decoded = { id:3, email:"charlie@...", name:"Charlie" }
+    req.user = { id:3, email:"charlie@...", name:"Charlie" }
+    next() → controller runs
+  Controller:
+    SELECT * FROM tasks WHERE user_id = req.user.id  (= 3)
+    Returns only Charlie's tasks ✅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CODE WALKTHROUGH — authMiddleware.js
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  const authHeader = req.headers.authorization;
+  ────────────────────────────────────────────────
+  HTTP headers are in req.headers object.
+  The Authorization header name is case-insensitive by HTTP spec,
+  but Express always lowercases header names. So it's:
+    req.headers.authorization   (lowercase "a") — always
+
+  A correctly sent header looks like:
+    "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+  ─────────────────────────────────────────────────────────────────
+
+  !authHeader.startsWith("Bearer ")
+  ──────────────────────────────────
+  The "Bearer " prefix is a convention from the OAuth 2.0 spec.
+  "Bearer" means "I am the one bearing (holding) this token."
+  The space after "Bearer" is required.
+
+  We check startsWith because some clients might send:
+    "bearer eyJ..."  (lowercase) → we'd miss it
+  Our check is case-sensitive — enforce uppercase "Bearer ".
+  (You could use .toLowerCase() to be more lenient.)
+
+  ─────────────────────────────────────────────────────────────────
+
+  const token = authHeader.split(" ")[1];
+  ──────────────────────────────────────────
+  "Bearer eyJhbGci..."
+    .split(" ")  → ["Bearer", "eyJhbGci..."]
+    [1]          → "eyJhbGci..."   ← just the token
+
+  ─────────────────────────────────────────────────────────────────
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  ─────────────────────────────────────────────────────────────
+  jwt.verify() is SYNCHRONOUS (unlike bcrypt).
+  It does cryptographic math, not I/O. No await needed.
+  It:
+    1. Splits the token into header, payload, signature
+    2. Recalculates signature using JWT_SECRET
+    3. Checks if calculated signature === token's signature
+    4. Checks if current time is before exp (expiry time)
+    5. If ALL pass → returns decoded payload object
+    6. If ANY fail → throws an error
+
+  Throws:
+    JsonWebTokenError  → bad signature, malformed token
+    TokenExpiredError  → token has passed its exp time
+    NotBeforeError     → token used before its valid-from date (rare)
+
+  ─────────────────────────────────────────────────────────────────
+
+  req.user = { id: decoded.id, email: decoded.email, name: decoded.name }
+  ──────────────────────────────────────────────────────────────────────────
+  We attach the decoded user info to the req object.
+  req.user is now available to ALL subsequent middleware and
+  the controller — without another database query!
+  The user data was already embedded in the token at login time.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  THE NEW ROUTE PATTERN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  router.get("/:id", protect, validTaskId, handleValidationErrors, getTaskById);
+  ─────────────────────────────────────────────────────────────────────────────
+  Middleware runs LEFT TO RIGHT:
+
+  1. protect              → verify JWT → set req.user → or 401
+  2. validTaskId          → validate that :id is a positive integer
+  3. handleValidationErrors → check if step 2 found errors → or 422
+  4. getTaskById          → actual controller logic → query DB → send response
+
+  If any step returns a response (401, 422), the remaining steps NEVER run.
+  Only when ALL previous steps call next() does the next one execute.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHY SCOPE QUERIES TO user_id?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Without user scoping (what we had before):
+    SELECT * FROM tasks WHERE id = 5
+    → If task 5 belongs to Alice, but Charlie is logged in,
+      Charlie can still GET, UPDATE, DELETE it!
+    → This is an "Insecure Direct Object Reference" (IDOR) vulnerability
+    → One of the OWASP Top 10 most common security flaws
+
+  With user scoping (what we have now):
+    SELECT * FROM tasks WHERE id = 5 AND user_id = req.user.id
+    → If task 5 belongs to Alice (user_id=1) and Charlie (id=3) tries:
+    → WHERE id = 5 AND user_id = 3 → no rows found → 404
+    → Charlie cannot access or modify Alice's tasks at all ✅
+
+  This means 404 can mean TWO things now:
+    a) The task genuinely doesn't exist
+    b) The task exists but belongs to someone else
+  We return 404 for both (not 403 Forbidden) — this way we don't
+  leak information about whether the resource exists.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  FULL REQUEST FLOW — COMPLETE END-TO-END
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. Charlie registers:    POST /api/auth/register
+                           → user created, id=3
+
+  2. Charlie logs in:      POST /api/auth/login
+                           → bcrypt.compare("secret99", hash) → true
+                           → jwt.sign({id:3, email, name}, SECRET) → token
+                           → Charlie saves the token
+
+  3. Charlie creates task: POST /api/tasks
+                           Authorization: Bearer <charlie's token>
+                           Body: { "title": "My task" }
+                           → protect: jwt.verify → req.user = {id:3,...}
+                           → createTask: INSERT user_id=3, title="My task"
+                           → returns new task
+
+  4. Alice logs in:        POST /api/auth/login
+                           → token for Alice (id=1)
+
+  5. Alice tries Charlie's task: GET /api/tasks/99  (Charlie's task id)
+                           Authorization: Bearer <alice's token>
+                           → protect: req.user = {id:1,...}
+                           → getTaskById: WHERE id=99 AND user_id=1
+                           → 0 rows found → 404 Not Found ✅
+                           → Alice cannot see Charlie's task
+
+  6. Charlie logs out:     Client deletes the token from storage
+                           → No server request needed
+                           → Next request without token → 401
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW TO SEND THE TOKEN IN POSTMAN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Method 1: Headers tab (manual)
+  ───────────────────────────────
+  In any request, click the "Headers" tab.
+  Add a new header:
+    Key:   Authorization
+    Value: Bearer eyJhbGciOiJIUzI1NiIs...  (paste your token here)
+
+  Method 2: Auth tab (easier)
+  ────────────────────────────
+  In any request, click the "Auth" tab.
+  Type dropdown: select "Bearer Token"
+  Token field: paste your token
+  Postman automatically adds the Authorization header!
+
+  Method 3: Environment variable (best for testing)
+  ──────────────────────────────────────────────────
+  1. Login → copy the token
+  2. In your Postman Environment, set variable "token" = the token
+  3. In the Auth tab of other requests: use {{token}} as the token value
+  4. Postman automatically fills in the real token value
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  POSTMAN TESTING — STAGE 10
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  SETUP: First log in to get a token.
+    POST http://localhost:3000/api/auth/login
+    Body: { "email": "charlie@test.com", "password": "secret99" }
+    Copy the "token" value from response.
+
+  TEST 1: Access tasks WITHOUT token (should fail)
+    GET http://localhost:3000/api/tasks
+    No Authorization header.
+    Expected: 401 "Access denied. No token provided."
+
+  TEST 2: Access tasks WITH valid token (should work)
+    GET http://localhost:3000/api/tasks
+    Authorization: Bearer <your_token>
+    Expected: 200 OK, Charlie's tasks only
+
+  TEST 3: Create a task as Charlie
+    POST http://localhost:3000/api/tasks
+    Authorization: Bearer <charlie_token>
+    Body: { "title": "Charlie's private task", "priority": "high" }
+    Expected: 201 Created, task with user_id = 3
+
+  TEST 4: Create a task as Alice
+    First login as Alice:
+    POST /api/auth/login  body: { "email": "alice@example.com", "password": "password" }
+    Copy Alice's token.
+    POST /api/tasks with Alice's token:
+    Body: { "title": "Alice's task", "priority": "medium" }
+    Expected: 201 Created, task with user_id = 1 (Alice's ID)
+
+  TEST 5: Alice can't see Charlie's tasks
+    GET http://localhost:3000/api/tasks  (with Alice's token)
+    Expected: Only Alice's tasks — NOT Charlie's
+
+  TEST 6: Try to access task with a bad token
+    GET http://localhost:3000/api/tasks
+    Authorization: Bearer this_is_not_a_real_token
+    Expected: 401 "Invalid token."
+
+  TEST 7: Verify isolation — Alice tries to get Charlie's task
+    Find a task ID that belongs to Charlie (from Test 3).
+    GET http://localhost:3000/api/tasks/<charlie_task_id>
+    With Alice's token.
+    Expected: 404 (not 403!) — we don't reveal it belongs to someone else
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CURRENT FOLDER STRUCTURE — FINAL SHAPE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  crud/
+  ├── config/
+  │   └── db.js                    ← MySQL pool
+  ├── controllers/
+  │   ├── authController.js        ← register + login
+  │   └── taskController.js        ← CRUD scoped to req.user.id
+  ├── database/
+  │   └── schema.sql
+  ├── middleware/
+  │   ├── authMiddleware.js        ← protect (JWT verification)
+  │   ├── errorMiddleware.js       ← notFound + errorHandler
+  │   └── validate.js              ← handleValidationErrors
+  ├── routes/
+  │   ├── authRoutes.js            ← /api/auth/register + login
+  │   └── taskRoutes.js            ← /api/tasks/* (all protected)
+  ├── notes/
+  │   ├── stage_01 through stage_10
+  ├── .env
+  ├── package.json
+  └── server.js
+
+════════════════════════════════════════════════════════════════════
+  ✏️  YOUR TASK — Try This Yourself!
+════════════════════════════════════════════════════════════════════
+
+  TASK 1: Prove user isolation
+    a. Register two users (Charlie already done, register Dave too)
+    b. Login as Charlie → create 2 tasks
+    c. Login as Dave → create 2 tasks
+    d. GET /api/tasks as Charlie → see only Charlie's 2 tasks
+    e. GET /api/tasks as Dave → see only Dave's 2 tasks
+    f. In MySQL Workbench: SELECT * FROM tasks; → see ALL tasks with user_ids
+
+  TASK 2: Try an IDOR attack
+    As Charlie, find the ID of one of Dave's tasks (from MySQL Workbench).
+    Try: GET /api/tasks/<dave_task_id> with Charlie's token.
+    Expected: 404 Not Found → Charlie can't see Dave's task ✅
+
+  TASK 3: Add GET /api/auth/me route
+    Add a route that returns the logged-in user's profile.
+    In authRoutes.js:
+      router.get("/me", protect, getMe);
+    In authController.js:
+      const getMe = async (req, res, next) => {
+        try {
+          const [rows] = await pool.query(
+            "SELECT id, name, email, is_active, created_at FROM users WHERE id = ?",
+            [req.user.id]
+          );
+          res.json({ success: true, user: rows[0] });
+        } catch (error) {
+          next(error);
+        }
+      };
+    Test: GET /api/auth/me with a valid token → see your profile
+
+════════════════════════════════════════════════════════════════════
+  WHAT'S NEXT — STAGE 11
+════════════════════════════════════════════════════════════════════
+
+  In Stage 11 we will:
+    - Add security best practices (rate limiting, cors headers, helmet)
+    - Improve API response consistency
+    - Handle edge cases we might have missed
+
+  After Stage 11 the project is FEATURE COMPLETE.
+  Stages 12–14 cover: Testing with Postman, README, and Docker.
+
+════════════════════════════════════════════════════════════════════

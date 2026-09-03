@@ -1,0 +1,290 @@
+════════════════════════════════════════════════════════════════════
+  STAGE 6 — Routes + Controllers Architecture
+  What We Built, Why, How It Works
+  Task Manager REST API — Learning Journal
+════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHY DID WE REFACTOR?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Before Stage 6, server.js had EVERYTHING:
+    - Express setup
+    - Database connection
+    - All route definitions
+    - All route handler logic
+    - All SQL queries
+    - Error handling
+
+  This is called "spaghetti code" — everything tangled together.
+
+  Problems with one big file:
+    ❌ Hard to find specific code (where is the delete logic? Scroll...)
+    ❌ Hard to work in a team (everyone editing the same file = conflicts)
+    ❌ Hard to test individual pieces
+    ❌ Hard to reuse code
+    ❌ Adding features makes the file longer and messier
+    ❌ Fixing a bug in tasks might accidentally break users
+
+  After Stage 6:
+    ✅ Each file has ONE clear job
+    ✅ Find any logic instantly by file name
+    ✅ Team members work on different files without conflict
+    ✅ Test each controller function independently
+    ✅ Add new features (users, auth) without touching existing files
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  THE NEW ARCHITECTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Request flows through 3 layers:
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │                      server.js                              │
+  │  The entry point. Wires everything together.                │
+  │  Registers middleware. Mounts route groups.                 │
+  └────────────────────────┬────────────────────────────────────┘
+                           │  app.use("/api/tasks", taskRoutes)
+                           ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │               routes/taskRoutes.js                          │
+  │  Matches URL patterns to controller functions.              │
+  │  router.get("/", getAllTasks)                               │
+  │  router.post("/", createTask)                               │
+  │  No logic here. Just URL → function mappings.               │
+  └────────────────────────┬────────────────────────────────────┘
+                           │  calls getAllTasks(req, res)
+                           ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │           controllers/taskController.js                     │
+  │  Contains the actual logic for each route.                  │
+  │  Reads req, runs SQL queries, sends res.                    │
+  │  const getAllTasks = async (req, res) => { ... }            │
+  └────────────────────────┬────────────────────────────────────┘
+                           │  pool.query(sql, params)
+                           ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │               config/db.js (MySQL Pool)                     │
+  │  Executes the SQL on the MySQL database.                    │
+  └─────────────────────────────────────────────────────────────┘
+
+  LAYER           │ FILE                     │ JOB
+  ────────────────┼──────────────────────────┼────────────────────
+  Entry point     │ server.js                │ Wire everything up
+  Routing         │ routes/taskRoutes.js     │ URL → function map
+  Business Logic  │ controllers/taskCtrl.js  │ Logic + DB queries
+  Data Access     │ config/db.js             │ MySQL connection
+  ────────────────┴──────────────────────────┴────────────────────
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT IS express.Router()?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  express.Router() creates a "mini Express app" — a router that
+  can have its own routes and middleware, then be attached to
+  the main app at a specific prefix.
+
+  In taskRoutes.js:
+    const router = express.Router();
+    router.get("/", getAllTasks);    // handles GET /
+    router.post("/", createTask);    // handles POST /
+
+  In server.js:
+    app.use("/api/tasks", taskRoutes);
+    // This MOUNTS the router at the prefix "/api/tasks"
+    // Now:
+    //   router.get("/")    → handles GET /api/tasks
+    //   router.post("/")   → handles POST /api/tasks
+    //   router.get("/:id") → handles GET /api/tasks/5
+
+  The prefix is added AUTOMATICALLY. The router file doesn't
+  know or care what prefix it's mounted at.
+  This means you could change the prefix in server.js
+  without touching the router file at all!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHY "/api/" PREFIX?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  "/api/" is a widely-used convention in web development.
+  It signals "this URL returns data (JSON), not a webpage".
+
+  This matters when your server might serve BOTH:
+    - A frontend website: GET /home, GET /about (returns HTML)
+    - A backend API:      GET /api/tasks (returns JSON)
+
+  Examples of real APIs that use this convention:
+    GitHub:   api.github.com/repos/...
+    Twitter:  api.twitter.com/2/tweets/...
+    YouTube:  youtube.googleapis.com/youtube/v3/...
+
+  Without /api/:
+    GET /tasks  → is this a webpage or data? Ambiguous.
+  With /api/:
+    GET /api/tasks → clearly returns JSON data.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW module.exports AND require() WORK TOGETHER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Node.js uses a module system. Each file is its own "module".
+  By default, nothing in a file is visible outside it.
+  You use module.exports to SHARE things, and require() to USE them.
+
+  In taskController.js:
+    const getAllTasks = async (req, res) => { ... };
+    module.exports = { getAllTasks, createTask, ... };
+    // Now other files can see these functions
+
+  In taskRoutes.js:
+    const { getAllTasks, createTask } = require("../controllers/taskController");
+    // "../" means go UP one folder (from routes/ to crud/)
+    // then into controllers/taskController.js
+    // We get back the object: { getAllTasks, createTask, ... }
+    // Destructure to pull out the functions we need
+
+  PATH GUIDE:
+    "."   = current folder
+    ".."  = parent folder (one level up)
+    "../config/db"              = go up, then into config/db.js
+    "../controllers/taskCtrl"  = go up, then into controllers/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW A REQUEST FLOWS — FULL TRACE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Request: POST http://localhost:3000/api/tasks
+  Body: { "title": "Learn Controllers" }
+
+  Step 1 → server.js
+    app.listen() receives the request on port 3000.
+    express.json() middleware parses the JSON body.
+    app.use("/api/tasks", taskRoutes) checks:
+      Does "/api/tasks/..." match the start of our URL?
+      YES → hand off to taskRoutes router.
+
+  Step 2 → routes/taskRoutes.js
+    The router receives the request.
+    The prefix "/api/tasks" is STRIPPED — router sees just "/"
+    Router checks: method=POST, path="/"
+    Matches: router.post("/", createTask)
+    Calls: createTask(req, res)
+
+  Step 3 → controllers/taskController.js → createTask()
+    Reads req.body.title = "Learn Controllers"
+    Validates: title exists? YES
+    Runs SQL: INSERT INTO tasks (user_id, title, ...) VALUES (?, ...)
+    Gets result.insertId = 8
+    Runs SELECT: SELECT * FROM tasks WHERE id = 8
+    Gets the new task row
+
+  Step 4 → Response
+    res.status(201).json({ success: true, data: newTask })
+    Express sends response back to Postman.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  NEW URL STRUCTURE (note: /api/ prefix added!)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  All task URLs now have /api/ prefix:
+
+  Before Stage 6:       After Stage 6:
+  GET /tasks         →  GET /api/tasks
+  GET /tasks/1       →  GET /api/tasks/1
+  POST /tasks        →  POST /api/tasks
+  PUT /tasks/1       →  PUT /api/tasks/1
+  PATCH /tasks/1/..  →  PATCH /api/tasks/1/status
+  DELETE /tasks/1    →  DELETE /api/tasks/1
+
+  Update your Postman requests to use the new URLs!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CURRENT FOLDER STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  crud/
+  ├── config/
+  │   └── db.js                     ← MySQL connection pool
+  ├── controllers/
+  │   └── taskController.js         ← NEW: all task logic lives here
+  ├── database/
+  │   └── schema.sql
+  ├── middleware/                    ← coming in Stage 7 & 10
+  ├── routes/
+  │   └── taskRoutes.js             ← NEW: URL → function mappings
+  ├── notes/
+  │   └── stage_06_architecture.txt ← this file
+  ├── .env
+  ├── package.json
+  └── server.js                     ← clean: just wires things together
+
+  FUTURE FILES (coming in later stages):
+    controllers/authController.js   ← Stage 8
+    routes/authRoutes.js            ← Stage 8
+    middleware/authMiddleware.js     ← Stage 10
+    middleware/errorMiddleware.js    ← Stage 7
+
+════════════════════════════════════════════════════════════════════
+  ✏️  YOUR TASK — Try This Yourself!
+════════════════════════════════════════════════════════════════════
+
+  TASK 1: Test all routes work with new /api/ prefix
+    Update your Postman requests:
+      GET  http://localhost:3000/api/tasks
+      GET  http://localhost:3000/api/tasks/1
+      POST http://localhost:3000/api/tasks   (body: {"title":"Controller test"})
+      PUT  http://localhost:3000/api/tasks/1 (body: {"status":"completed"})
+      PATCH http://localhost:3000/api/tasks/1/status (body: {"status":"pending"})
+      DELETE http://localhost:3000/api/tasks/5
+
+    All should work exactly as before, just with /api/ prefix.
+
+  TASK 2: Add a GET /api/tasks/stats controller
+    In taskController.js, add a new function:
+
+      const getTaskStats = async (req, res) => {
+        try {
+          const [rows] = await pool.query(`
+            SELECT
+              COUNT(*) AS total,
+              SUM(status = 'pending')     AS pending,
+              SUM(status = 'in_progress') AS in_progress,
+              SUM(status = 'completed')   AS completed,
+              SUM(status = 'cancelled')   AS cancelled
+            FROM tasks
+          `);
+          res.json({ success: true, stats: rows[0] });
+        } catch (error) {
+          res.status(500).json({ success: false, message: error.message });
+        }
+      };
+
+    Add it to module.exports.
+    In taskRoutes.js, import it and add:
+      router.get("/stats", getTaskStats);  // ← MUST be BEFORE router.get("/:id")
+
+    Why before /:id?
+      Express matches routes IN ORDER.
+      If /:id comes first, /stats matches it with id = "stats"
+      Then parseInt("stats") = NaN — wrong! Stats route never runs.
+      So specific routes ALWAYS go before parameterized ones.
+
+  TASK 3: Trace through the code manually
+    Without running the server, trace what happens when:
+      DELETE http://localhost:3000/api/tasks/999
+    Walk through: server.js → taskRoutes.js → taskController.js
+    What SQL runs? What does affectedRows equal? What response is sent?
+
+════════════════════════════════════════════════════════════════════
+  WHAT'S NEXT — STAGE 7
+════════════════════════════════════════════════════════════════════
+
+  In Stage 7 we will:
+    - Add input validation using express-validator
+      (check that title is not empty, status is valid, etc.)
+    - Create a centralized error handling middleware
+      (one place to catch all errors instead of try/catch everywhere)
+    - Learn the difference between validation errors vs server errors
+    - Clean up the controllers to use the central error handler
+
+════════════════════════════════════════════════════════════════════

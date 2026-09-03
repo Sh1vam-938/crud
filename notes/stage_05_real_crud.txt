@@ -1,0 +1,464 @@
+════════════════════════════════════════════════════════════════════
+  STAGE 5 — Real MySQL Task CRUD
+  What We Built, Why, How It Works
+  Task Manager REST API — Learning Journal
+════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT WE BUILT IN STAGE 5
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  File updated: server.js
+
+  The in-memory tasks array is GONE.
+  All 6 task routes now talk directly to MySQL.
+
+  Routes:
+    GET    /tasks                → SELECT all tasks (with optional filters)
+    GET    /tasks/:id            → SELECT one task by id
+    POST   /tasks                → INSERT a new task
+    PUT    /tasks/:id            → UPDATE all provided fields
+    PATCH  /tasks/:id/status     → UPDATE only the status field
+    DELETE /tasks/:id            → DELETE a task
+
+  What's different from Stage 2 (in-memory):
+    Before:  data lived in a JS array — gone on restart
+    Now:     data lives in MySQL on disk — survives restarts forever
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  THE MOST IMPORTANT CONCEPT: PARAMETERIZED QUERIES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  What is SQL Injection?
+  ───────────────────────
+  Imagine you search for tasks and your app builds SQL like this:
+
+    const sql = "SELECT * FROM tasks WHERE title = '" + userInput + "'";
+
+  A normal user types: "Buy milk"
+  SQL becomes:  SELECT * FROM tasks WHERE title = 'Buy milk'   ← fine
+
+  A hacker types: "'; DROP TABLE tasks; --"
+  SQL becomes:  SELECT * FROM tasks WHERE title = ''; DROP TABLE tasks; --'
+  This executes TWO statements:
+    1. SELECT (finds nothing)
+    2. DROP TABLE tasks  ← DELETES YOUR ENTIRE TASKS TABLE!
+
+  This is called SQL Injection — it's one of the most common
+  and dangerous web vulnerabilities.
+
+  The Fix: Parameterized Queries
+  ───────────────────────────────
+  Instead of putting values directly in the SQL string, use "?"
+  as a placeholder. Pass values separately in an array.
+
+  WRONG (vulnerable):
+    pool.query("SELECT * FROM tasks WHERE id = " + req.params.id)
+
+  RIGHT (safe):
+    pool.query("SELECT * FROM tasks WHERE id = ?", [id])
+
+  How it works:
+    mysql2 sends the SQL and values SEPARATELY to MySQL.
+    MySQL treats the value as DATA, never as SQL code.
+    The hacker's "'; DROP TABLE tasks; --" becomes literal text
+    inside quotes, not executable SQL. Attack neutralized!
+
+  ALWAYS use "?" placeholders. NEVER concatenate user input into SQL.
+  This rule has no exceptions.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT pool.query() RETURNS — DETAILED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  pool.query() always returns [rows, fields].
+  But "rows" means different things depending on the SQL type:
+
+  SELECT query:
+  ─────────────
+  const [rows] = await pool.query("SELECT * FROM tasks");
+  rows = array of objects:
+    [
+      { id: 1, title: "Learn Node.js", status: "completed", ... },
+      { id: 2, title: "Learn Express",  status: "completed", ... },
+    ]
+  rows.length = number of results (0 = nothing found)
+  rows[0]     = first result
+
+  INSERT query:
+  ─────────────
+  const [result] = await pool.query("INSERT INTO tasks ...", values);
+  result is a ResultSetHeader object:
+    {
+      fieldCount:   0,
+      affectedRows: 1,       ← 1 row was inserted
+      insertId:     7,       ← the AUTO_INCREMENT id of the new row ← USEFUL!
+      ...
+    }
+  result.insertId → use this to fetch the newly created row
+
+  UPDATE query:
+  ─────────────
+  const [result] = await pool.query("UPDATE tasks SET ...", values);
+  result is a ResultSetHeader:
+    {
+      affectedRows: 1,   ← 1 row was updated (0 = id didn't exist!)
+      changedRows:  1,   ← 1 row actually changed (could be 0 if value same)
+      ...
+    }
+  result.affectedRows === 0 → the WHERE id = ? found no row → 404!
+
+  DELETE query:
+  ─────────────
+  const [result] = await pool.query("DELETE FROM tasks WHERE id = ?", [id]);
+  result:
+    {
+      affectedRows: 1,   ← 1 row deleted (0 = didn't exist!)
+      ...
+    }
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CODE WALKTHROUGH — GET /tasks (dynamic filtering)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  let sql    = "SELECT * FROM tasks";
+  let params = [];
+  ─────────────────────────────────────
+  We start with the base query.
+  params is an empty array that we'll fill with filter values.
+
+  if (status && priority) {
+    sql += " WHERE status = ? AND priority = ?";
+    params.push(status, priority);
+  }
+  ─────────────────────────────────────────────────────────
+  If BOTH filters are in the query string, add both to WHERE.
+  params becomes: ["pending", "high"]
+  SQL becomes: SELECT * FROM tasks WHERE status = ? AND priority = ?
+  mysql2 replaces ?s with "pending" and "high" safely.
+
+  sql += " ORDER BY created_at DESC";
+  ──────────────────────────────────
+  Always sort by newest first (DESC = descending = newest to oldest).
+  If we used ASC, oldest tasks would show first.
+
+  const [rows] = await pool.query(sql, params);
+  ──────────────────────────────────────────────
+  Run the final built query with the params array.
+  If params is empty [], mysql2 ignores it (no "?" in SQL anyway).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CODE WALKTHROUGH — POST /tasks (INSERT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  INSERT INTO tasks (user_id, title, description, priority, due_date)
+  VALUES (?, ?, ?, ?, ?)
+  ─────────────────────────────────────────────────────────────────────
+  We list columns explicitly. This is best practice because:
+    - If someone adds a new column to the table, our query still works
+    - The reader immediately knows which columns we're setting
+    - We avoid accidentally setting columns we didn't mean to
+
+  const values = [user_id, title.trim(), description || null, ...]
+  ────────────────────────────────────────────────────────────────
+  values is an array in the SAME ORDER as the "?" in the SQL.
+  First ? = user_id, second ? = title, etc.
+
+  description || null:
+    If description is undefined (not sent in body), use null.
+    SQL's NULL means "no value" — appropriate for optional fields.
+
+  const [result] = await pool.query(insertSQL, values);
+  const newTaskId = result.insertId;
+  ──────────────────────────────────────────────────────
+  After INSERT, result.insertId = the new task's auto-generated ID.
+  We immediately use it to fetch the full row from the DB.
+
+  WHY fetch after insert?
+    MySQL auto-fills created_at, updated_at, and status defaults.
+    If we just return the data we sent in the body, we'd miss those.
+    Fetching gives the client the COMPLETE task as MySQL stored it.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CODE WALKTHROUGH — PUT /tasks/:id (dynamic UPDATE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  const setClauses = [];
+  const values     = [];
+
+  if (title !== undefined) {
+    setClauses.push("title = ?");
+    values.push(title.trim());
+  }
+  ──────────────────────────────────────────────────────────────────
+  We only update fields that the client actually sent.
+  If client sends: { "status": "completed" }
+  Then only status is in req.body. title, description, etc. are
+  undefined — we skip them, keeping the DB values unchanged.
+
+  setClauses = ["status = ?"]
+  values     = ["completed", 1]   ← "completed" for SET, 1 for WHERE id
+
+  Built SQL: "UPDATE tasks SET status = ? WHERE id = ?"
+  Values:    ["completed", 1]
+
+  This is better than always setting ALL fields, because:
+    - Client doesn't have to re-send fields they didn't change
+    - Less data transferred over network
+    - More flexible API
+
+  if (result.affectedRows === 0) { return res.status(404)... }
+  ──────────────────────────────────────────────────────────────
+  If no rows were affected, the WHERE id = ? found nothing.
+  That means the ID doesn't exist in the database.
+  We return 404 Not Found.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PUT vs PATCH — What's the difference?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  PUT    = Replace the whole resource. Send ALL fields.
+           In our implementation, we made PUT flexible (partial update ok).
+           Some strict APIs require all fields with PUT.
+
+  PATCH  = Update part of a resource. Send only what changed.
+           More semantically correct for partial updates.
+
+  We added PATCH /tasks/:id/status as a convenience — it updates
+  ONLY the status field. Useful for a "Mark as Complete" button
+  that doesn't need to send the whole task, just the new status.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW A REQUEST FLOWS — POST /tasks
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Postman: POST http://localhost:3000/tasks
+           Body: { "title": "Buy groceries", "priority": "high" }
+                │
+                ▼
+  Express receives, matches POST /tasks
+                │
+                ▼
+  express.json() parses body:
+    req.body = { title: "Buy groceries", priority: "high" }
+                │
+                ▼
+  Route handler runs (async):
+    Validates: title exists? YES
+    user_id = 1 (hardcoded for now)
+    values = [1, "Buy groceries", null, "high", null]
+                │
+                ▼
+  pool.query(INSERT SQL, values)
+    → Pool grabs a free connection
+    → Sends INSERT to MySQL (port 3306)
+    → MySQL saves the row, assigns id = 7, created_at = NOW()
+    → MySQL returns: { insertId: 7, affectedRows: 1 }
+    → Pool releases connection
+                │
+                ▼
+  pool.query(SELECT * FROM tasks WHERE id = 7)
+    → Gets the full saved task back from MySQL
+    → task = { id:7, user_id:1, title:"Buy groceries", status:"pending",
+                priority:"high", created_at:"2024-01-15 09:30:00", ... }
+                │
+                ▼
+  res.status(201).json({ success: true, data: task })
+                │
+                ▼
+  Postman: 201 Created + full task JSON
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  COMPLETE POSTMAN TESTING GUIDE — STAGE 5
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Run: npm run dev
+
+  TEST 1: Get all tasks (should have 6 from schema.sql)
+  ──────────────────────────────────────────────────────
+  GET http://localhost:3000/tasks
+  Expected: 200 OK, 6 tasks
+
+  TEST 2: Filter by status
+  ─────────────────────────
+  GET http://localhost:3000/tasks?status=pending
+  Expected: only pending tasks
+
+  TEST 3: Filter by both status and priority
+  ───────────────────────────────────────────
+  GET http://localhost:3000/tasks?status=pending&priority=high
+  Expected: pending AND high priority tasks
+
+  TEST 4: Get one task
+  ─────────────────────
+  GET http://localhost:3000/tasks/1
+  Expected: task "Learn Node.js"
+
+  TEST 5: Get non-existent task
+  ──────────────────────────────
+  GET http://localhost:3000/tasks/999
+  Expected: 404, "Task with ID 999 not found"
+
+  TEST 6: Create a task
+  ──────────────────────
+  POST http://localhost:3000/tasks
+  Body (raw JSON):
+  {
+    "title": "Study Stage 5 concepts",
+    "description": "Learn SQL injection, parameterized queries",
+    "priority": "high",
+    "due_date": "2024-12-31"
+  }
+  Expected: 201 Created, new task with DB-assigned id, created_at
+
+  TEST 7: Create task with only title (minimal)
+  ──────────────────────────────────────────────
+  POST http://localhost:3000/tasks
+  Body: { "title": "Minimal task" }
+  Expected: 201 Created (priority defaults to "medium", no description)
+
+  TEST 8: Create task without title (should fail)
+  ────────────────────────────────────────────────
+  POST http://localhost:3000/tasks
+  Body: { "priority": "high" }
+  Expected: 400 Bad Request, "Title is required"
+
+  TEST 9: Update a task
+  ──────────────────────
+  PUT http://localhost:3000/tasks/3
+  Body: { "status": "in_progress", "priority": "high" }
+  Expected: 200 OK, task 3 updated
+
+  TEST 10: Update only one field
+  ───────────────────────────────
+  PUT http://localhost:3000/tasks/1
+  Body: { "title": "Learn Node.js ✅" }
+  Expected: 200 OK, only title changed, other fields unchanged
+
+  TEST 11: Quick status update with PATCH
+  ────────────────────────────────────────
+  PATCH http://localhost:3000/tasks/3/status
+  Body: { "status": "completed" }
+  Expected: 200 OK, status updated
+
+  TEST 12: Invalid status value
+  ──────────────────────────────
+  PATCH http://localhost:3000/tasks/3/status
+  Body: { "status": "done" }
+  Expected: 400 Bad Request, "Status must be one of: pending, in_progress..."
+
+  TEST 13: Delete a task
+  ───────────────────────
+  DELETE http://localhost:3000/tasks/6
+  Expected: 200 OK, shows the deleted task
+
+  TEST 14: Delete non-existent task
+  ──────────────────────────────────
+  DELETE http://localhost:3000/tasks/6  (again, already deleted)
+  Expected: 404 Not Found
+
+  VERIFY PERSISTENCE:
+  ────────────────────
+  This is the key difference from Stage 2!
+  1. Create a new task (POST)
+  2. Note the ID
+  3. Stop the server (Ctrl+C)
+  4. Start the server again (npm run dev)
+  5. GET that task by ID → it's STILL THERE! ✅
+  6. In MySQL Workbench, run: SELECT * FROM tasks;
+     You'll see all the tasks including the one you just created.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  NOTE ABOUT user_id = 1 (Hardcoded)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Right now in POST /tasks we have:
+    const user_id = 1;  // hardcoded — Alice's ID
+
+  This is temporary. In Stage 10, when we add JWT authentication,
+  this will become:
+    const user_id = req.user.id;  // from the decoded JWT token
+
+  The middleware will decode the token, put the user info into
+  req.user, and each task will automatically belong to whoever
+  is logged in. For now, user_id = 1 lets us test without auth.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CURRENT FOLDER STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  crud/
+  ├── config/
+  │   └── db.js              ← MySQL connection pool
+  ├── database/
+  │   └── schema.sql         ← SQL schema
+  ├── notes/
+  │   ├── stage_01_complete_notes.txt
+  │   ├── stage_02_http_and_routes.txt
+  │   ├── stage_03_mysql_database.txt
+  │   ├── stage_04_mysql_connection.txt
+  │   └── stage_05_real_crud.txt      ← this file
+  ├── node_modules/
+  ├── .env
+  ├── .gitignore
+  ├── package.json
+  └── server.js              ← All routes using real MySQL now
+
+════════════════════════════════════════════════════════════════════
+  ✏️  YOUR TASK — Try This Yourself!
+════════════════════════════════════════════════════════════════════
+
+  TASK 1: Prove persistence
+    1. POST /tasks to create a new task
+    2. Note the returned id
+    3. Stop the server: Ctrl+C
+    4. Start it again: npm run dev
+    5. GET /tasks/:id with that id
+    6. See it's still there — data is now permanent! ✅
+
+  TASK 2: Add GET /tasks/stats route
+    It should query the database and return:
+    {
+      "total": 7,
+      "by_status": {
+        "pending": 3,
+        "in_progress": 1,
+        "completed": 3,
+        "cancelled": 0
+      }
+    }
+    Hint: Use four separate COUNT queries, or one query with CASE:
+      SELECT
+        COUNT(*) AS total,
+        SUM(status = 'pending') AS pending,
+        SUM(status = 'completed') AS completed
+      FROM tasks;
+
+  TASK 3: Test SQL injection attempt (to see our protection works)
+    In Postman, try creating a task with this title:
+      "test'); DROP TABLE tasks; --"
+    It should create a task with that exact weird title (safely stored).
+    Check MySQL Workbench — the tasks table should still exist!
+    This proves parameterized queries protect us.
+
+  Complete all 3 tasks before Stage 6!
+
+════════════════════════════════════════════════════════════════════
+  WHAT'S NEXT — STAGE 6
+════════════════════════════════════════════════════════════════════
+
+  Right now, ALL our code (routes, logic, DB queries) is crammed
+  into ONE file: server.js. This works for a small app, but as we
+  add users, auth, and more features, it becomes a mess.
+
+  In Stage 6 we will:
+    - Split server.js into multiple focused files
+    - Create routes/ folder (only URL patterns)
+    - Create controllers/ folder (route handler functions)
+    - Learn the architecture pattern: Routes → Controllers → DB
+    - Refactor all existing task CRUD into this structure
+
+  This is one of the most important lessons in backend development:
+  organizing code so it's readable, maintainable, and scalable.
+
+════════════════════════════════════════════════════════════════════

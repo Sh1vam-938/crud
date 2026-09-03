@@ -1,0 +1,436 @@
+════════════════════════════════════════════════════════════════════
+  STAGE 1 — COMPLETE NOTES
+  What We Did, Why We Did It, How It Works
+  Task Manager REST API — Learning Journal
+════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  STEP 1: Created package.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  What happened:
+    We created a file called package.json manually.
+    In a normal project, you'd run "npm init -y" in the terminal,
+    which auto-generates this file. We created it by hand here.
+
+  Why do we need package.json?
+    Every Node.js project MUST have a package.json.
+    It is the "blueprint" of your project. It tells:
+      - What your project is called
+      - What version it is
+      - What packages (libraries) it needs to work
+      - Shortcut commands to run the project
+
+  What "dependencies" means:
+    "dependencies" = packages needed for the app to RUN (in production)
+    "devDependencies" = packages only needed during DEVELOPMENT
+
+    Example:
+      express     → production (the app needs it to work)
+      nodemon     → development only (we use it to auto-restart during coding)
+
+  Packages we listed and WHY:
+  ─────────────────────────────────────────────────────────────────
+  express
+    The web framework. Without it, we'd write 100 lines of raw
+    Node.js http code just for simple things. Express makes it clean.
+    Used everywhere: routes, middleware, request/response handling.
+
+  dotenv
+    Reads our .env file and puts the values into process.env.
+    Without it, you'd have to hardcode passwords in code. BAD!
+    Used: at the very top of server.js before anything else.
+
+  mysql2
+    The "driver" that lets Node.js talk to MySQL database.
+    mysql2 is faster and more modern than the older "mysql" package.
+    mysql2 supports Promises (async/await), which we need.
+    Used: in our database connection file (coming in Stage 4).
+
+  bcryptjs
+    Hashing library for passwords.
+    NEVER store plain passwords in a database. If database is hacked,
+    hackers get ALL passwords. bcryptjs turns "hello123" into a long
+    unreadable hash like "$2a$10$eImiTXuWVxfM37uY4JANjQ..."
+    Used: in user registration (Stage 8).
+
+  jsonwebtoken (JWT)
+    Creates and verifies "tokens" for authentication.
+    Instead of checking username/password on every request,
+    we give the user a signed token after login. They send it
+    with every request to prove who they are.
+    Used: in login and authentication middleware (Stage 9).
+
+  express-validator
+    Checks user input BEFORE we process it.
+    Example: Is the email a valid format? Is the password long enough?
+    Prevents bad data from reaching our database.
+    Used: in all routes that receive user input (Stage 7).
+
+  nodemon (devDependency)
+    Normally when you change server.js, you must:
+      1. Stop the server (Ctrl+C)
+      2. Start it again (node server.js)
+    nodemon watches your files and AUTOMATICALLY restarts when any
+    file changes. Saves huge time during development!
+    Used: "npm run dev" runs nodemon instead of node.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  STEP 2: Created .env file — and set MySQL password
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  What we did:
+    Created .env with these values already filled in:
+      PORT=3000
+      DB_USER=root
+      DB_PASSWORD=root       ← Set to "root" (most common default)
+      DB_NAME=task_manager_db
+      JWT_SECRET=taskmanager_super_secret_jwt_key_2024_do_not_share
+
+  ⚠️  IMPORTANT — MySQL Password:
+    We used DB_PASSWORD=root because most MySQL Workbench installs
+    on Windows default to username "root" with password "root".
+
+    If your password is different:
+      1. Open .env
+      2. Change the line:  DB_PASSWORD=root
+         to your real password, example:  DB_PASSWORD=mypassword123
+      3. Save the file
+
+    How to check your MySQL password:
+      - Open MySQL Workbench
+      - Click on your connection (usually "Local instance MySQL")
+      - It should connect. If it doesn't, try a different password.
+      - If you forgot your password, you can reset MySQL root password.
+
+  Why use .env?
+    Instead of writing in your code:
+      const password = "root";   ← DANGEROUS if pushed to GitHub!
+
+    We write:
+      const password = process.env.DB_PASSWORD;  ← Safe!
+
+    The actual value "root" stays only in .env on your computer.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  STEP 3: Created server.js — The Main Express Server
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  What we did:
+    Created server.js with:
+      - Express app setup
+      - JSON middleware
+      - Three routes: GET /, GET /about, GET /health
+
+  We also COMPLETED the Stage 1 task by adding:
+    GET /about  → Returns project info
+    GET /health → Returns server uptime and memory info
+
+  server.js line by line:
+
+  require("dotenv").config()
+  ───────────────────────────
+  require() imports a package. dotenv is a package.
+  .config() is a method that runs the dotenv logic — reads .env
+  and loads all KEY=VALUE pairs into process.env.
+  This MUST be the first line. Without it, process.env.PORT
+  would be undefined.
+
+  const express = require("express")
+  const app = express()
+  ──────────────────────────────────
+  Line 1: Import the express package.
+  Line 2: Call express() — this creates our "app" object.
+  Everything else — routes, middleware — attaches to "app".
+
+  app.use(express.json())
+  ──────────────────────
+  app.use() registers middleware.
+  Middleware = a function that runs on EVERY request.
+  express.json() is built-in. It parses JSON from request bodies.
+  Without it: req.body = undefined
+  With it:    req.body = { name: "John", password: "abc" }
+
+  const PORT = process.env.PORT || 3000
+  ───────────────────────────────────────
+  process.env.PORT reads from .env (which sets PORT=3000).
+  "|| 3000" means "if PORT is not set, use 3000 as default".
+  This is called a "fallback value".
+
+  app.get("/", (req, res) => { ... })
+  ─────────────────────────────────────
+  app.get() = handle GET HTTP requests at a URL
+  "/"       = the URL path
+  (req, res)= the handler function:
+    req = Request — info about what the client sent
+    res = Response — methods to send data back
+
+  res.json({ message: "..." })
+  ─────────────────────────────
+  Sends a JSON response.
+  Automatically sets header:  Content-Type: application/json
+  Converts the JS object to a JSON string.
+
+  app.listen(PORT, callback)
+  ──────────────────────────
+  Opens the port and starts accepting connections.
+  Without this line, the server doesn't run.
+  The callback logs messages to the terminal when server starts.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  STEP 4: Created .gitignore
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  What we did:
+    Created .gitignore to tell Git what NOT to track.
+
+  Why:
+    node_modules/ = 100,000+ files. Never track these.
+    .env          = Contains secrets. NEVER track this.
+
+  Git reads .gitignore automatically and skips those files.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  UNDERSTANDING LOCALHOST — THE MOST IMPORTANT CONCEPT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  What is "localhost"?
+  ─────────────────────
+  "localhost" is a special hostname that means "THIS computer".
+  It is always equal to IP address 127.0.0.1.
+
+  So these two are EXACTLY the same:
+    http://localhost:3000
+    http://127.0.0.1:3000
+
+  When we run our Express server on our laptop, we're creating a
+  mini web server on OUR OWN machine. The server is NOT on the
+  internet — it only exists on your laptop.
+
+  What is a PORT?
+  ────────────────
+  A port is like a "door number" on your computer.
+  Your computer has 65,535 ports.
+  Different programs use different ports.
+
+  Common ports:
+    Port 80   → Standard HTTP websites (http://google.com)
+    Port 443  → HTTPS websites (https://google.com)
+    Port 3306 → MySQL database (default)
+    Port 3000 → Our Express server (we chose this)
+    Port 8080 → Another common dev port
+
+  When you go to http://localhost:3000:
+    - "localhost"  → your own computer
+    - ":3000"      → port 3000 on that computer
+    - "/"          → the path (root route)
+
+  Full URL breakdown:
+    http://localhost:3000/api/tasks
+    ──┬──  ────┬────  ─┬─  ────┬───
+      │        │       │       │
+      │        │       │       └─ Path (which route to handle)
+      │        │       └───────── Port number
+      │        └───────────────── Host (localhost = this machine)
+      └────────────────────────── Protocol (http)
+
+  How it works step by step:
+  ───────────────────────────
+  1. You type http://localhost:3000/ in browser or Postman
+  2. Your computer looks up "localhost" → resolves to 127.0.0.1
+  3. It connects to port 3000 on your own machine
+  4. Express is listening on that port (because of app.listen(3000))
+  5. Express receives the request (GET /)
+  6. Express matches it to the right route handler
+  7. The handler runs and sends back a JSON response
+  8. Your browser/Postman displays the response
+
+  Visual diagram:
+  ───────────────
+  [Browser/Postman]
+        │
+        │  HTTP Request: GET http://localhost:3000/
+        │
+        ▼
+  [Your Laptop — Port 3000]
+        │
+        │  Express app is listening here
+        │
+        ▼
+  [Express Router]
+        │
+        │  Matches:  GET "/"
+        │
+        ▼
+  [Route Handler: app.get("/", ...)]
+        │
+        │  Runs your code
+        │
+        ▼
+  [res.json({ message: "..." })]
+        │
+        │  Sends JSON response back
+        │
+        ▼
+  [Browser/Postman shows the JSON]
+
+  Why do we use port 3000?
+  ─────────────────────────
+  No special reason! Port 3000 is just a convention for Node.js apps.
+  You could use port 4000, 5000, 8080 — anything above 1024.
+  Ports below 1024 are "reserved" and need admin privileges.
+
+  What is localhost:3306?
+  ────────────────────────
+  That is where YOUR MySQL database is running on your computer.
+  MySQL listens on port 3306 by default.
+  In .env: DB_HOST=localhost means "the database is on this machine".
+  Node.js will connect to localhost:3306 to talk to MySQL.
+
+  So our app uses TWO ports:
+    localhost:3000 → Express server (our API)
+    localhost:3306 → MySQL database (storage)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW TO RUN THE SERVER (Full Step-by-Step)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. Open PowerShell or Command Prompt (CMD)
+     Right-click the crud folder → "Open in Terminal"
+     OR open PowerShell and type:
+       cd "C:\Users\sr333\OneDrive\Desktop\crud"
+
+  2. Install all packages:
+       npm install
+     This reads package.json and downloads all packages to node_modules/
+     It will take 30–60 seconds the first time.
+     You'll see something like: "added 200 packages in 12s"
+
+  3. Start the server in development mode:
+       npm run dev
+     This runs nodemon, which:
+       - Starts the server
+       - Watches for file changes
+       - Restarts automatically when you save any file
+
+     You should see in the terminal:
+       🚀 Server is running!
+          Local:   http://localhost:3000
+          About:   http://localhost:3000/about
+          Health:  http://localhost:3000/health
+
+  4. Test in Postman:
+     - Open Postman
+     - Click the "+" tab to create a new request
+     - Select "GET" from the dropdown
+     - Type: http://localhost:3000/
+     - Click "Send"
+     - You should see the JSON response!
+
+  5. Test all three routes:
+       GET  http://localhost:3000/          → Welcome message
+       GET  http://localhost:3000/about     → Project info
+       GET  http://localhost:3000/health    → Server uptime
+
+  6. To STOP the server:
+     Press Ctrl+C in the terminal
+
+  TROUBLESHOOTING:
+  ─────────────────
+  Error: "Cannot find module 'express'"
+    → You forgot to run "npm install"! Run it now.
+
+  Error: "EADDRINUSE: address already in use :::3000"
+    → Port 3000 is already being used by another program.
+    → Either stop the other program, or change PORT in .env to 3001
+
+  Nothing happens when I go to localhost:3000
+    → Make sure the server is running (you should see logs in terminal)
+    → Make sure you used "http://" not "https://"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW TO USE POSTMAN (Quick Guide)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Postman is a tool to test APIs. Think of it as a browser that can
+  send any type of HTTP request (GET, POST, PUT, DELETE) with any
+  headers, body, or authentication.
+
+  For now (Stage 1), we only need GET requests:
+
+  To test GET http://localhost:3000/:
+    1. Open Postman
+    2. Click "New" → "HTTP Request"
+    3. Method dropdown: GET (it's already GET by default)
+    4. URL bar: type  http://localhost:3000/
+    5. Click "Send" (blue button)
+    6. See the response in the bottom panel
+
+  The response will show:
+    - Status: 200 OK (green) ← means success!
+    - Body: the JSON data
+    - Time: how long the request took
+
+  Status Codes you'll see:
+    200 OK          → Success
+    201 Created     → Successfully created something (POST)
+    400 Bad Request → Client sent bad data
+    401 Unauthorized→ Not logged in
+    403 Forbidden   → Logged in but don't have permission
+    404 Not Found   → Route doesn't exist
+    500 Internal    → Server crashed / has a bug
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CURRENT FOLDER STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  crud/
+  ├── .env                                   ← Secrets & config
+  ├── .gitignore                             ← Git ignore rules
+  ├── package.json                           ← Project blueprint
+  ├── server.js                              ← Entry point, Express server
+  ├── node_modules/                          ← Installed packages (after npm install)
+  └── notes/
+      └── stage_01_complete_notes.txt        ← This file
+
+  COMING IN FUTURE STAGES:
+  crud/
+  ├── config/
+  │   └── db.js                  ← MySQL connection (Stage 4)
+  ├── routes/
+  │   ├── authRoutes.js          ← Register/Login routes (Stage 8-9)
+  │   └── taskRoutes.js          ← Task CRUD routes (Stage 5-6)
+  ├── controllers/
+  │   ├── authController.js      ← Auth logic (Stage 8-9)
+  │   └── taskController.js      ← Task logic (Stage 5-6)
+  ├── middleware/
+  │   ├── authMiddleware.js      ← JWT verification (Stage 10)
+  │   └── errorMiddleware.js     ← Error handling (Stage 7)
+  ├── database/
+  │   └── schema.sql             ← SQL to create tables (Stage 3)
+  ├── .env
+  ├── .gitignore
+  ├── package.json
+  ├── server.js
+  └── notes/
+      ├── stage_01_complete_notes.txt
+      ├── stage_02_http_routes.txt
+      ├── ... (each stage gets its own notes file)
+      └── stage_13_readme_and_deployment.txt
+
+════════════════════════════════════════════════════════════════════
+  WHAT'S NEXT — STAGE 2
+════════════════════════════════════════════════════════════════════
+
+  In Stage 2 we will:
+    - Understand what HTTP really is
+    - Learn GET, POST, PUT, DELETE methods
+    - Learn what request headers and body are
+    - Create more routes (a mini task list in memory)
+    - Learn how data flows from Postman → Server → Response
+
+════════════════════════════════════════════════════════════════════

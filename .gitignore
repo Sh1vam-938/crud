@@ -1,0 +1,19 @@
+# ──────────────────────────────────────────────────────────────────
+# .gitignore — Files Git Should NEVER Track
+# ──────────────────────────────────────────────────────────────────
+
+# Dependencies — downloaded automatically via "npm install"
+# No need to track 100,000+ files; just track package.json
+node_modules/
+
+# Environment secrets — NEVER commit this!
+.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS generated files
+.DS_Store
+Thumbs.db
